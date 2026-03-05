@@ -180,8 +180,7 @@ docker compose up -d db
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -e .
-# or: pip install -r requirements.txt if you choose that instead of pyproject
+pip install -r requirements.txt
 ```
 
 Create `.env`:
