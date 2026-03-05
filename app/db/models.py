@@ -64,7 +64,7 @@ class NavNodeType(str, enum.Enum):
 
 class User(Base):
     __tablename__ = "users"
-    email_hash: Mapped[str] = mapped_column(String, primary_key=True)
+    email: Mapped[str] = mapped_column(String, primary_key=True) 
     password_hash: Mapped[str] = mapped_column(String, nullable=False)
     first_semester: Mapped[str] = mapped_column(String, nullable=False)
 
@@ -72,7 +72,7 @@ class Session(Base):
     __tablename__ = "sessions"
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     device_id: Mapped[str] = mapped_column(String, nullable=False)
-    user_email_hash: Mapped[str | None] = mapped_column(ForeignKey("users.email_hash"), nullable=True)
+    user_email: Mapped[str | None] = mapped_column(ForeignKey("users.email"), nullable=True)
 
 class Term(Base):
     __tablename__ = "terms"
@@ -126,7 +126,7 @@ class RoomAvailabilityRule(Base):
 class Booking(Base):
     __tablename__ = "bookings"
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_email_hash: Mapped[str] = mapped_column(ForeignKey("users.email_hash"), nullable=False)
+    user_email: Mapped[str] = mapped_column(ForeignKey("users.email"), nullable=False)
     term_id: Mapped[str] = mapped_column(ForeignKey("terms.id"), nullable=False)
     room_id: Mapped[str] = mapped_column(ForeignKey("rooms.id"), nullable=False)
 
@@ -138,13 +138,13 @@ class Booking(Base):
     status: Mapped[BookingStatus] = mapped_column(Enum(BookingStatus), nullable=False, default=BookingStatus.active)
 
     __table_args__ = (
-        Index("ix_booking_user_status", "user_email_hash", "status"),
+        Index("ix_booking_user_status", "user_email", "status"),
         Index("ix_booking_room_window", "room_id", "date", "start_time", "end_time"),
     )
 
 class Favorite(Base):
     __tablename__ = "favorites"
-    user_email_hash: Mapped[str] = mapped_column(ForeignKey("users.email_hash"), primary_key=True)
+    user_email: Mapped[str] = mapped_column(ForeignKey("users.email"), primary_key=True)
     room_id: Mapped[str] = mapped_column(ForeignKey("rooms.id"), primary_key=True)
 
 # ---------- Reports ----------
@@ -152,7 +152,7 @@ class Favorite(Base):
 class Report(Base):
     __tablename__ = "reports"
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_email_hash: Mapped[str | None] = mapped_column(ForeignKey("users.email_hash"), nullable=True)
+    user_email: Mapped[str | None] = mapped_column(ForeignKey("users.email"), nullable=True)
     room_id: Mapped[str] = mapped_column(ForeignKey("rooms.id"), nullable=False)
     reported_at: Mapped[str] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
 
@@ -170,7 +170,7 @@ class Report(Base):
 class Schedule(Base):
     __tablename__ = "schedules"
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_email_hash: Mapped[str] = mapped_column(ForeignKey("users.email_hash"), nullable=False)
+    user_email: Mapped[str] = mapped_column(ForeignKey("users.email"), nullable=False)
     source: Mapped[ScheduleSource] = mapped_column(Enum(ScheduleSource), nullable=False)
 
 class ScheduleClass(Base):
@@ -200,7 +200,7 @@ class AnalyticsEvent(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     ts: Mapped[str] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
     session_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("sessions.id"), nullable=False)
-    user_email_hash: Mapped[str | None] = mapped_column(ForeignKey("users.email_hash"), nullable=True)
+    user_email: Mapped[str | None] = mapped_column(ForeignKey("users.email"), nullable=True)
     event_name: Mapped[str] = mapped_column(String, nullable=False)
     screen: Mapped[str | None] = mapped_column(String, nullable=True)
     duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -209,7 +209,7 @@ class AnalyticsEvent(Base):
     __table_args__ = (
         Index("ix_ae_name_ts", "event_name", "ts"),
         Index("ix_ae_screen_ts", "screen", "ts"),
-        Index("ix_ae_user_ts", "user_email_hash", "ts"),
+        Index("ix_ae_user_ts", "user_email", "ts"),
         Index("ix_ae_session_ts", "session_id", "ts"),
     )
 
@@ -219,7 +219,7 @@ class ChatSession(Base):
     __tablename__ = "chat_sessions"
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     session_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("sessions.id"), nullable=False)
-    user_email_hash: Mapped[str | None] = mapped_column(ForeignKey("users.email_hash"), nullable=True)
+    user_email: Mapped[str | None] = mapped_column(ForeignKey("users.email"), nullable=True)
 
 class ChatMessage(Base):
     __tablename__ = "chat_messages"
