@@ -63,7 +63,7 @@ async def read_me(request: Request):
         raise HTTPException(status_code=401, detail="There is no active session")
     return {"active_user": user}
 
-@router.get("email/{user_email}", response_model=user_schema.UserResponse)
+@router.get("/email/{user_email}", response_model=user_schema.UserResponse)
 async def get_user(user_email: str, db: Session = Depends(session.get_db)):
     stmt = select(models.User).where(models.User.email == user_email)
     result = await db.execute(stmt)
