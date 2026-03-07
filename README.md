@@ -224,6 +224,10 @@ This creates all tables defined in `app/db/models.py`.
 uvicorn app.main:app --reload
 ```
 
+```bash - Celular Fisico
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
 ### Step 8 — Verify backend health
 
 Open or call:
