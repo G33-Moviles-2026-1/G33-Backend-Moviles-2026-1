@@ -219,12 +219,12 @@ python -m app.db.init_db
 
 ## Step D — Seed mock data
 
----
-
-## Step E — Run the backend
 
 ```bash
 uvicorn app.main:app --reload
+```
+```bash - Celular Fisico
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 Verify:
