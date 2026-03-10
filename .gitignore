@@ -4,8 +4,8 @@
 !.env.example
 
 # Python
-__pycache__/
-*.py[cod]
+**/__pycache__/
+**/*.py[cod]
 *.pyo
 *.pyc
 *.pyd
