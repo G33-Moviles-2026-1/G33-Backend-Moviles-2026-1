@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from uuid import UUID
 
+from sqlalchemy import Integer, cast, func, select, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -48,3 +49,37 @@ async def insert_analytics_event(
             props_json=props_json,
         )
     )
+
+
+# ── Schedule import funnel ────────────────────────────────────────────────────
+
+async def get_schedule_import_funnel_raw(
+    db: AsyncSession,
+) -> list[tuple[str, int, str, int]]:
+    """
+    Returns rows of (method, step_number, step, distinct_session_count)
+    for all recorded schedule_import_step events.
+    """
+    method_col = AnalyticsEvent.props_json["method"].astext
+    step_number_col = cast(
+        AnalyticsEvent.props_json["step_number"].astext, Integer)
+    step_col = AnalyticsEvent.props_json["step"].astext
+
+    stmt = (
+        select(
+            method_col.label("method"),
+            step_number_col.label("step_number"),
+            step_col.label("step"),
+            func.count(func.distinct(
+                AnalyticsEvent.session_id)).label("users"),
+        )
+        .where(AnalyticsEvent.event_name == "schedule_import_step")
+        .group_by(method_col, step_number_col, step_col)
+        .order_by(method_col, step_number_col)
+    )
+
+    result = await db.execute(stmt)
+    return [
+        (row.method, row.step_number, row.step, row.users)
+        for row in result.all()
+    ]
