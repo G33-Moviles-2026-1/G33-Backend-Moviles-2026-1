@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.time_rules import get_operating_hours
 from app.db.models import UtilityType, Weekday
 from app.db.repositories.rooms_repo import (
     fetch_room_search_rows,
@@ -22,10 +23,17 @@ from app.schemas.rooms import (
     WeeklyAvailabilityWindowOut,
 )
 
-BOGOTA_TZ = ZoneInfo("America/Bogota")
+from app.db.repositories.rooms_repo import (
+    fetch_room_base_info,
+    fetch_room_daily_slots,
+)
+from app.schemas.rooms import (
+    RoomDateAvailabilityOut,
+    RoomDateAvailabilitySlotOut,
+)
 
-MIN_TIME = time(5, 30)
-MAX_TIME = time(22, 0)
+
+BOGOTA_TZ = ZoneInfo("America/Bogota")
 
 WEEKDAY_MAP = {
     0: Weekday.monday,
@@ -51,6 +59,89 @@ class ResolvedSearchParams:
     limit: int
     offset: int
     weekday: Weekday
+
+
+async def get_room_date_availability(
+    db: AsyncSession,
+    *,
+    room_id: str,
+    target_date: date,
+) -> RoomDateAvailabilityOut:
+    today = _current_bogota_datetime().date()
+    max_allowed = today + timedelta(days=7)
+
+    if target_date < today or target_date > max_allowed:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="date must be between today and the next 7 days",
+        )
+
+    weekday = WEEKDAY_MAP[target_date.weekday()]
+    operating_hours = get_operating_hours(weekday)
+    if operating_hours is None:
+      # Sunday closed, but keep response stable
+      room = await fetch_room_base_info(db, room_id=room_id)
+      if room is None:
+          raise HTTPException(
+              status_code=status.HTTP_404_NOT_FOUND,
+              detail="room was not found",
+          )
+
+      return RoomDateAvailabilityOut(
+          room_id=room.room_id,
+          date=target_date,
+          weekday=weekday,
+          building_code=room.building_code,
+          building_name=room.building_name,
+          room_number=room.room_number,
+          capacity=room.capacity,
+          reliability=room.reliability,
+          utilities=[u.value for u in room.utilities],
+          available_slots=[],
+          blocked_slots=[],
+      )
+
+    room = await fetch_room_base_info(db, room_id=room_id)
+    if room is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="room was not found",
+        )
+
+    available_slots, blocked_slots = await fetch_room_daily_slots(
+        db,
+        room_id=room_id,
+        target_date=target_date,
+        weekday=weekday,
+    )
+
+    return RoomDateAvailabilityOut(
+        room_id=room.room_id,
+        date=target_date,
+        weekday=weekday,
+        building_code=room.building_code,
+        building_name=room.building_name,
+        room_number=room.room_number,
+        capacity=room.capacity,
+        reliability=room.reliability,
+        utilities=[u.value for u in room.utilities],
+        available_slots=[
+            RoomDateAvailabilitySlotOut(
+                start=item.start_time,
+                end=item.end_time,
+                is_available=True,
+            )
+            for item in available_slots
+        ],
+        blocked_slots=[
+            RoomDateAvailabilitySlotOut(
+                start=item.start_time,
+                end=item.end_time,
+                is_available=False,
+            )
+            for item in blocked_slots
+        ],
+    )
 
 
 def _normalize_text_token(value: str) -> str:
@@ -90,6 +181,7 @@ def _current_bogota_datetime() -> datetime:
 def _resolve_time_window(
     *,
     target_date: date,
+    weekday: Weekday,
     since: time | None,
     until: time | None,
 ) -> tuple[time, time]:
@@ -99,21 +191,40 @@ def _resolve_time_window(
             detail="at least one of since or until must be provided",
         )
 
-    if since is None:
-        now = _current_bogota_datetime()
-        # Sensible interpretation of the open edge case in the source:
-        # - today -> current local time
-        # - future day -> earliest allowed search time
-        inferred_since = time(now.hour, now.minute) if target_date == now.date() else MIN_TIME
-        since = max(inferred_since, MIN_TIME)
-
-    if until is None:
-        until = MAX_TIME
-
-    if since < MIN_TIME or since > MAX_TIME or until < MIN_TIME or until > MAX_TIME:
+    operating_hours = get_operating_hours(weekday)
+    if operating_hours is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="since and until must be between 05:30 and 22:00",
+            detail="campus is closed on sunday",
+        )
+
+    open_time, close_time = operating_hours
+
+    if since is None:
+        now = _current_bogota_datetime()
+        inferred_since = (
+            time(now.hour, now.minute)
+            if target_date == now.date()
+            else open_time
+        )
+        since = max(inferred_since, open_time)
+
+    if until is None:
+        until = close_time
+
+    if (
+        since < open_time
+        or since > close_time
+        or until < open_time
+        or until > close_time
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"since and until must be between "
+                f"{open_time.strftime('%H:%M')} and {close_time.strftime('%H:%M')} "
+                f"for {weekday.value}"
+            ),
         )
 
     if since >= until:
@@ -141,8 +252,11 @@ def resolve_room_search_request(payload: RoomSearchRequest) -> ResolvedSearchPar
             detail="user_location is required when near_me is true",
         )
 
+    weekday = WEEKDAY_MAP[payload.date.weekday()]
+
     since, until = _resolve_time_window(
         target_date=payload.date,
+        weekday=weekday,
         since=payload.since,
         until=payload.until,
     )
@@ -158,7 +272,7 @@ def resolve_room_search_request(payload: RoomSearchRequest) -> ResolvedSearchPar
         user_location=payload.user_location,
         limit=payload.limit,
         offset=payload.offset,
-        weekday=WEEKDAY_MAP[payload.date.weekday()],
+        weekday=weekday,
     )
 
 
