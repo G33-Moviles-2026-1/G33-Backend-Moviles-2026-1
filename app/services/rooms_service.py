@@ -214,12 +214,16 @@ async def search_rooms(
                 "matching_windows": [],
                 "_lat": row.latitude,
                 "_lon": row.longitude,
+                "_earliest_start": row.rule_start_time 
             }
 
         window = TimeWindowOut(
             start=row.rule_start_time,
             end=row.rule_end_time,
         )
+
+        if row.rule_start_time < grouped[row.room_id]["_earliest_start"]:
+            grouped[row.room_id]["_earliest_start"] = row.rule_start_time
 
         existing_windows = grouped[row.room_id]["matching_windows"]
         if window not in existing_windows:
@@ -232,32 +236,30 @@ async def search_rooms(
         user_lon = resolved.user_location.longitude
 
         for item in items:
-            lat = item["_lat"]
-            lon = item["_lon"]
+            lat, lon = item["_lat"], item["_lon"]
             if lat is not None and lon is not None:
                 item["distance_meters"] = round(
-                    _haversine_meters(user_lat, user_lon, lat, lon),
-                    1,
+                    _haversine_meters(user_lat, user_lon, lat, lon), 1
                 )
-
         items.sort(
-            key=lambda item: (
-                item["distance_meters"] is None,
-                item["distance_meters"] if item["distance_meters"] is not None else float("inf"),
-                -item["reliability"],
-                item["room_id"],
+            key=lambda x: (
+                x["distance_meters"] is None,
+                x["distance_meters"] if x["distance_meters"] is not None else float("inf"),
+                x["_earliest_start"],
+                x["room_id"],
             )
         )
     else:
         items.sort(
-            key=lambda item: (
-                -item["reliability"],
-                item["room_id"],
+            key=lambda x: (
+                x["_earliest_start"],
+                -x["reliability"],
+                x["room_id"],
             )
         )
 
     total = len(items)
-    paginated = items[resolved.offset:resolved.offset + resolved.limit]
+    paginated = items[resolved.offset : resolved.offset + resolved.limit]
 
     paginated_room_ids = [item["room_id"] for item in paginated]
     weekly_map = await fetch_weekly_availability_for_rooms(
@@ -275,7 +277,7 @@ async def search_rooms(
             reliability=item["reliability"],
             utilities=item["utilities"],
             distance_meters=item["distance_meters"],
-            matching_windows=item["matching_windows"],
+            matching_windows=sorted(item["matching_windows"], key=lambda w: w.start),
             weekly_availability=[
                 WeeklyAvailabilityWindowOut(
                     day=window.day,
