@@ -7,6 +7,7 @@ from app.api.routes.ingest import router as ingest_router
 from app.api.routes.rooms import router as rooms_router
 from app.api.routes.bookings import router as bookings_router
 from app.api.routes.analytics import router as analytics_router
+from app.api.routes.schedule import router as schedule_router
 
 app = FastAPI(title="AndeSpace Backend")
 
@@ -25,3 +26,4 @@ app.include_router(ingest_router)
 app.include_router(rooms_router)
 app.include_router(bookings_router)
 app.include_router(analytics_router)
+app.include_router(schedule_router)
