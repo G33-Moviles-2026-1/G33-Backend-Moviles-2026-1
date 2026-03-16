@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
 from app.schemas.analytics import AnalyticsEventIn, AnalyticsEventOut
-from app.services.analytics_service import track_homepage_event
+from app.services.analytics_service import track_analytics_event
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
 
@@ -17,4 +17,4 @@ async def create_analytics_event(
     payload: AnalyticsEventIn,
     db: AsyncSession = Depends(get_db),
 ) -> AnalyticsEventOut:
-    return await track_homepage_event(db, payload)
+    return await track_analytics_event(db, payload)

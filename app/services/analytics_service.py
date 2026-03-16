@@ -7,7 +7,7 @@ from app.db.repositories.analytics_repo import (
 from app.schemas.analytics import AnalyticsEventIn, AnalyticsEventOut
 
 
-async def track_homepage_event(
+async def track_analytics_event(
     db: AsyncSession,
     payload: AnalyticsEventIn,
 ) -> AnalyticsEventOut:
