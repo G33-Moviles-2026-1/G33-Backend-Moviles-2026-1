@@ -286,6 +286,7 @@ Run:
 
 ```bash
 python -m app.db.seed_utilities
+python -m app.db.repositories.seed_navigation_tree
 ```
 
 This fills `room_utilities` consistently for all ingested rooms.
