@@ -6,6 +6,27 @@ from pydantic import BaseModel, Field
 
 from app.db.models import UtilityType, Weekday
 
+from datetime import date, time
+from pydantic import BaseModel
+from app.db.models import Weekday
+
+class RoomDateAvailabilitySlotOut(BaseModel):
+    start: time
+    end: time
+    is_available: bool
+
+class RoomDateAvailabilityOut(BaseModel):
+    room_id: str
+    date: date
+    weekday: Weekday
+    building_code: str
+    building_name: str | None
+    room_number: str
+    capacity: int
+    reliability: float
+    utilities: list[str]
+    available_slots: list[RoomDateAvailabilitySlotOut]
+    blocked_slots: list[RoomDateAvailabilitySlotOut]
 
 class LocationIn(BaseModel):
     latitude: float

@@ -19,7 +19,32 @@ from app.db.models import (
     Weekday,
 )
 from app.integrations.uniandes.ingest_runner import RoomSeed
+from app.core.time_rules import clip_to_operating_hours
 
+from dataclasses import dataclass
+from datetime import date, time
+from sqlalchemy import select
+from app.core.config import settings
+from app.core.time_rules import clip_to_operating_hours
+from app.db.models import Booking, BookingStatus, Room, RoomAvailabilityRule, Weekday
+
+@dataclass(slots=True)
+class RoomDailySlotRow:
+    start_time: time
+    end_time: time
+    is_available: bool
+
+@dataclass(slots=True)
+class RoomDailyAvailabilityRow:
+    room_id: str
+    building_code: str
+    building_name: str | None
+    room_number: str
+    capacity: int
+    reliability: float
+    utilities: list[UtilityType]
+    available_slots: list[RoomDailySlotRow]
+    blocked_slots: list[RoomDailySlotRow]
 
 @dataclass(slots=True)
 class RoomSearchRow:
@@ -44,6 +69,121 @@ class WeeklyAvailabilityRow:
     end_time: time
     valid_from: date
     valid_to: date
+
+
+async def fetch_room_base_info(
+    db: AsyncSession,
+    *,
+    room_id: str,
+) -> RoomSearchRow | None:
+    result = await db.execute(
+        select(
+            Room.id.label("room_id"),
+            Room.building_code.label("building_code"),
+            func.coalesce(Room.building_name, Building.name).label("building_name"),
+            Room.room_number.label("room_number"),
+            Room.capacity.label("capacity"),
+            Room.reliability.label("reliability"),
+            Building.latitude.label("latitude"),
+            Building.longitude.label("longitude"),
+        )
+        .join(Building, Building.code == Room.building_code)
+        .where(Room.id == room_id)
+        .limit(1)
+    )
+
+    row = result.one_or_none()
+    if row is None:
+        return None
+
+    utilities_map = await _fetch_utilities_for_rooms(db, [room_id])
+    return RoomSearchRow(
+        room_id=row.room_id,
+        building_code=row.building_code,
+        building_name=row.building_name,
+        room_number=row.room_number,
+        capacity=row.capacity,
+        reliability=float(row.reliability),
+        rule_start_time=time(0, 0),
+        rule_end_time=time(0, 0),
+        latitude=row.latitude,
+        longitude=row.longitude,
+        utilities=utilities_map.get(room_id, []),
+    )
+
+
+async def fetch_room_daily_slots(
+    db: AsyncSession,
+    *,
+    room_id: str,
+    target_date: date,
+    weekday: Weekday,
+) -> tuple[list[RoomDailySlotRow], list[RoomDailySlotRow]]:
+    rules_result = await db.execute(
+        select(
+            RoomAvailabilityRule.start_time,
+            RoomAvailabilityRule.end_time,
+        )
+        .where(
+            RoomAvailabilityRule.term_id == settings.current_term_id,
+            RoomAvailabilityRule.room_id == room_id,
+            RoomAvailabilityRule.day == weekday,
+            RoomAvailabilityRule.valid_from <= target_date,
+            RoomAvailabilityRule.valid_to >= target_date,
+        )
+        .order_by(
+            RoomAvailabilityRule.start_time.asc(),
+            RoomAvailabilityRule.end_time.asc(),
+        )
+    )
+
+    bookings_result = await db.execute(
+        select(Booking.start_time, Booking.end_time)
+        .where(
+            Booking.term_id == settings.current_term_id,
+            Booking.room_id == room_id,
+            Booking.date == target_date,
+            Booking.status == BookingStatus.active,
+        )
+        .order_by(Booking.start_time.asc(), Booking.end_time.asc())
+    )
+
+    active_bookings = [(s, e) for s, e in bookings_result.all()]
+
+    available_slots: list[RoomDailySlotRow] = []
+    blocked_slots: list[RoomDailySlotRow] = []
+
+    seen: set[tuple[time, time, bool]] = set()
+
+    for start_time, end_time in rules_result.all():
+        clipped = clip_to_operating_hours(weekday, start_time, end_time)
+        if clipped is None:
+            continue
+
+        start_time, end_time = clipped
+
+        is_blocked = any(
+            booking_start < end_time and booking_end > start_time
+            for booking_start, booking_end in active_bookings
+        )
+
+        key = (start_time, end_time, not is_blocked)
+        if key in seen:
+            continue
+        seen.add(key)
+
+        slot = RoomDailySlotRow(
+            start_time=start_time,
+            end_time=end_time,
+            is_available=not is_blocked,
+        )
+
+        if is_blocked:
+            blocked_slots.append(slot)
+        else:
+            available_slots.append(slot)
+
+    return available_slots, blocked_slots
 
 
 async def upsert_rooms(db: AsyncSession, rooms: list[RoomSeed]) -> int:
@@ -134,6 +274,12 @@ async def fetch_room_search_rows(
     building_codes: list[str],
     utilities: list[UtilityType],
 ) -> list[RoomSearchRow]:
+    
+    effective_window = clip_to_operating_hours(weekday, since, until)
+    if effective_window is None:
+        return []
+
+    effective_since, effective_until = effective_window
 
     stmt = (
         select(
@@ -155,8 +301,8 @@ async def fetch_room_search_rows(
             RoomAvailabilityRule.day == weekday,
             RoomAvailabilityRule.valid_from <= target_date,
             RoomAvailabilityRule.valid_to >= target_date,
-            RoomAvailabilityRule.start_time < until,
-            RoomAvailabilityRule.end_time > since,
+            RoomAvailabilityRule.start_time < effective_until,
+            RoomAvailabilityRule.end_time > effective_since,
         )
     )
 
@@ -266,12 +412,18 @@ async def fetch_weekly_availability_for_rooms(
 
     weekly_map: dict[str, list[WeeklyAvailabilityRow]] = {}
     for room_id, day, start_time, end_time, valid_from, valid_to in result.all():
+        clipped = clip_to_operating_hours(day, start_time, end_time)
+        if clipped is None:
+            continue
+
+        clipped_start, clipped_end = clipped
+
         weekly_map.setdefault(room_id, []).append(
             WeeklyAvailabilityRow(
                 room_id=room_id,
                 day=day,
-                start_time=start_time,
-                end_time=end_time,
+                start_time=clipped_start,
+                end_time=clipped_end,
                 valid_from=valid_from,
                 valid_to=valid_to,
             )
