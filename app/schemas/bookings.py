@@ -1,4 +1,4 @@
-from datetime import date, time
+from datetime import date, datetime, time
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, field_validator
@@ -34,3 +34,22 @@ class BookingOut(BaseModel):
     end_time: time
     purpose: BookingPurpose
     status: BookingStatus
+    created_at: datetime
+
+
+class MyBookingItemOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    room_id: str
+    date: date
+    start_time: time
+    end_time: time
+    purpose: BookingPurpose
+    status: BookingStatus
+    created_at: datetime
+
+
+class MyBookingsResponse(BaseModel):
+    total: int
+    items: list[MyBookingItemOut]

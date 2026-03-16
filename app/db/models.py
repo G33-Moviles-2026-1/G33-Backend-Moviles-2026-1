@@ -2,11 +2,12 @@ import enum
 import uuid
 from sqlalchemy import (
     String, Integer, Boolean, Date, Time, Enum, ForeignKey,
-    UniqueConstraint, Index, Text
+    UniqueConstraint, Index, Text, func
 )
 from sqlalchemy.dialects.postgresql import UUID, JSONB, TIMESTAMP
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
+from datetime import datetime
 
 # ---------- Enums ----------
 
@@ -136,10 +137,16 @@ class Booking(Base):
 
     purpose: Mapped[BookingPurpose] = mapped_column(Enum(BookingPurpose), nullable=False)
     status: Mapped[BookingStatus] = mapped_column(Enum(BookingStatus), nullable=False, default=BookingStatus.active)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
 
     __table_args__ = (
         Index("ix_booking_user_status", "user_email", "status"),
         Index("ix_booking_room_window", "room_id", "date", "start_time", "end_time"),
+        Index("ix_booking_user_created", "user_email", "created_at"),
     )
 
 class Favorite(Base):

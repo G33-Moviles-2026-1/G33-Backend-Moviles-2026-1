@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
+from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException, status
@@ -10,15 +11,24 @@ from app.core.config import settings
 from app.core.time_rules import clip_to_operating_hours
 from app.db.models import BookingStatus, Weekday
 from app.db.repositories.bookings_repo import (
+    complete_past_active_bookings_for_user,
     count_active_bookings_for_user,
     current_term_exists,
     fetch_bookable_time_ranges_for_room,
+    fetch_booking_owned_by_user,
     insert_booking,
+    list_recent_visible_bookings_for_user,
     room_exists,
     room_has_overlapping_active_booking,
+    soft_delete_booking_for_user,
     user_has_overlapping_active_booking,
 )
-from app.schemas.bookings import BookingOut, CreateBookingRequest
+from app.schemas.bookings import (
+    BookingOut,
+    CreateBookingRequest,
+    MyBookingItemOut,
+    MyBookingsResponse,
+)
 
 BOGOTA_TZ = ZoneInfo("America/Bogota")
 
@@ -33,8 +43,8 @@ WEEKDAY_MAP = {
 }
 
 
-def _today_bogota() -> date:
-    return datetime.now(BOGOTA_TZ).date()
+def _current_bogota_datetime() -> datetime:
+    return datetime.now(BOGOTA_TZ)
 
 
 async def create_booking(
@@ -43,7 +53,7 @@ async def create_booking(
     user_email: str,
     payload: CreateBookingRequest,
 ) -> BookingOut:
-    today = _today_bogota()
+    today = _current_bogota_datetime().date()
     max_allowed = today + timedelta(days=7)
 
     if payload.date < today or payload.date > max_allowed:
@@ -154,3 +164,55 @@ async def create_booking(
     )
 
     return BookingOut.model_validate(booking)
+
+
+async def get_my_bookings(
+    db: AsyncSession,
+    *,
+    user_email: str,
+) -> MyBookingsResponse:
+    now = _current_bogota_datetime()
+
+    # Keep statuses meaningful for the UI.
+    await complete_past_active_bookings_for_user(
+        db,
+        user_email=user_email,
+        current_moment=now,
+    )
+
+    created_since = now - timedelta(days=30)
+
+    bookings = await list_recent_visible_bookings_for_user(
+        db,
+        user_email=user_email,
+        created_since=created_since,
+    )
+
+    return MyBookingsResponse(
+        total=len(bookings),
+        items=[MyBookingItemOut.model_validate(item) for item in bookings],
+    )
+
+
+async def delete_my_booking(
+    db: AsyncSession,
+    *,
+    user_email: str,
+    booking_id: UUID,
+) -> None:
+    existing = await fetch_booking_owned_by_user(
+        db,
+        booking_id=booking_id,
+        user_email=user_email,
+    )
+    if existing is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="booking was not found",
+        )
+
+    await soft_delete_booking_for_user(
+        db,
+        booking_id=booking_id,
+        user_email=user_email,
+    )

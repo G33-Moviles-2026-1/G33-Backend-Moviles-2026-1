@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, time
+from datetime import date, datetime, time
+from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -180,6 +181,99 @@ async def insert_booking(
     )
 
     db.add(booking)
+    await db.commit()
+    await db.refresh(booking)
+    return booking
+
+
+async def complete_past_active_bookings_for_user(
+    db: AsyncSession,
+    *,
+    user_email: str,
+    current_moment: datetime,
+) -> int:
+    today = current_moment.date()
+    current_time = current_moment.time().replace(microsecond=0)
+
+    result = await db.execute(
+        update(Booking)
+        .where(
+            Booking.term_id == settings.current_term_id,
+            Booking.user_email == user_email,
+            Booking.status == BookingStatus.active,
+            or_(
+                Booking.date < today,
+                and_(
+                    Booking.date == today,
+                    Booking.end_time <= current_time,
+                ),
+            ),
+        )
+        .values(status=BookingStatus.completed)
+    )
+
+    await db.commit()
+    return int(result.rowcount or 0)
+
+
+async def list_recent_visible_bookings_for_user(
+    db: AsyncSession,
+    *,
+    user_email: str,
+    created_since: datetime,
+) -> list[Booking]:
+    result = await db.execute(
+        select(Booking)
+        .where(
+            Booking.term_id == settings.current_term_id,
+            Booking.user_email == user_email,
+            Booking.created_at >= created_since,
+            Booking.status.in_([BookingStatus.active, BookingStatus.completed]),
+        )
+        .order_by(
+            Booking.created_at.desc(),
+            Booking.date.desc(),
+            Booking.start_time.desc(),
+        )
+    )
+    return list(result.scalars().all())
+
+
+async def fetch_booking_owned_by_user(
+    db: AsyncSession,
+    *,
+    booking_id: UUID,
+    user_email: str,
+) -> Booking | None:
+    result = await db.execute(
+        select(Booking)
+        .where(
+            Booking.id == booking_id,
+            Booking.user_email == user_email,
+        )
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
+
+
+async def soft_delete_booking_for_user(
+    db: AsyncSession,
+    *,
+    booking_id: UUID,
+    user_email: str,
+) -> Booking | None:
+    booking = await fetch_booking_owned_by_user(
+        db,
+        booking_id=booking_id,
+        user_email=user_email,
+    )
+    if booking is None:
+        return None
+
+    if booking.status == BookingStatus.cancelled:
+        return booking
+
+    booking.status = BookingStatus.cancelled
     await db.commit()
     await db.refresh(booking)
     return booking
