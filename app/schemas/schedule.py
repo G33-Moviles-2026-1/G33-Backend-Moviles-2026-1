@@ -82,7 +82,6 @@ class ManualClassIn(BaseModel):
 
 
 class ManualScheduleIn(BaseModel):
-    user_email: str
     classes: list[ManualClassIn]
 
 

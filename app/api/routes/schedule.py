@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
@@ -34,6 +34,16 @@ router = APIRouter(prefix="/schedule", tags=["schedule"])
 _MAX_ICS_BYTES = 2 * 1024 * 1024  # 2 MB
 
 
+def _require_active_user_email(request: Request) -> str:
+    user_email = request.session.get("user_name")
+    if not user_email:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="There is no active session",
+        )
+    return user_email
+
+
 def _parse_query_date(value: str | None) -> date:
     if value is None:
         return date.today()
@@ -58,10 +68,11 @@ def _parse_query_date(value: str | None) -> date:
     summary="Upload a university schedule in ICS format",
 )
 async def upload_ics(
-    user_email: str = Form(..., description="Authenticated user e-mail"),
+    request: Request,
     file: UploadFile = File(..., description="ICS calendar file"),
     db: AsyncSession = Depends(get_db),
 ) -> ScheduleUploadOut:
+    user_email = _require_active_user_email(request)
     if file.content_type not in (
         "text/calendar",
         "application/ics",
@@ -96,8 +107,10 @@ async def upload_ics(
 )
 async def upload_manual(
     payload: ManualScheduleIn,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> ManualScheduleOut:
+    user_email = _require_active_user_email(request)
     if not payload.classes:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -105,7 +118,7 @@ async def upload_manual(
         )
     return await upload_manual_schedule(
         db,
-        user_email=payload.user_email,
+        user_email=user_email,
         classes_in=payload.classes,
     )
 
@@ -118,10 +131,11 @@ async def upload_manual(
     summary="Get the user's classes for the week containing 'date'",
 )
 async def get_week(
-    user_email: str,
+    request: Request,
     date: str | None = None,
     db: AsyncSession = Depends(get_db),
 ) -> WeeklyScheduleOut:
+    user_email = _require_active_user_email(request)
     reference = _parse_query_date(date)
     return await get_weekly_schedule(
         db,
@@ -138,10 +152,11 @@ async def get_week(
     summary="Get rooms available during the user's free time on a given date",
 )
 async def get_free_rooms(
-    user_email: str,
+    request: Request,
     date: str | None = None,
     db: AsyncSession = Depends(get_db),
 ) -> FreeRoomsForDayOut:
+    user_email = _require_active_user_email(request)
     target = _parse_query_date(date)
     return await get_free_rooms_for_day(db, user_email=user_email, target_date=target)
 
@@ -152,9 +167,10 @@ async def get_free_rooms(
     summary="Delete the user's full schedule",
 )
 async def delete_schedule(
-    user_email: str,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> ScheduleDeleteOut:
+    user_email = _require_active_user_email(request)
     return await delete_user_schedule(db, user_email=user_email)
 
 
@@ -165,9 +181,10 @@ async def delete_schedule(
 )
 async def delete_class(
     class_id: UUID,
-    user_email: str,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> ScheduleDeleteClassOut:
+    user_email = _require_active_user_email(request)
     return await delete_schedule_class(
         db,
         user_email=user_email,
@@ -182,10 +199,11 @@ async def delete_class(
 )
 async def delete_occurrence(
     class_id: UUID,
-    user_email: str,
+    request: Request,
     date: str,
     db: AsyncSession = Depends(get_db),
 ) -> ScheduleDeleteOccurrenceOut:
+    user_email = _require_active_user_email(request)
     target = _parse_query_date(date)
     return await delete_schedule_occurrence(
         db,
@@ -201,7 +219,8 @@ async def delete_occurrence(
     summary="List base classes in the user's schedule",
 )
 async def get_schedule_classes(
-    user_email: str,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> ScheduleClassesOut:
+    user_email = _require_active_user_email(request)
     return await list_schedule_classes(db, user_email=user_email)
