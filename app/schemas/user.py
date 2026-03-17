@@ -1,5 +1,7 @@
 from pydantic import BaseModel, ConfigDict
 from pydantic import BaseModel, ConfigDict, field_validator, EmailStr
+from fastapi import HTTPException
+
 
 class UserBase(BaseModel):
     email: str
@@ -8,7 +10,7 @@ class UserBase(BaseModel):
     def validate_email_domain(cls, v: str) -> str:
         allowed_domain = "@uniandes.edu.co"
         if not v.lower().endswith(allowed_domain):
-            raise ValueError(f"The email must match with {allowed_domain}")
+            raise HTTPException(status_code = 403, detail = f"The email must match with {allowed_domain}")
         return v.lower()
 
 class UserCreate(UserBase):
