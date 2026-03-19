@@ -50,8 +50,11 @@ from app.schemas.schedule import (
 BOGOTA_TZ = ZoneInfo("America/Bogota")
 
 # Campus operating hours used to compute free slots
-CAMPUS_START = time(6, 0)
+CAMPUS_START = time(5, 30)
 CAMPUS_END = time(22, 0)
+
+CLASS_START_MIN = time(5, 30)
+CLASS_END_MAX = time(22, 0)
 
 # Minimum free slot to surface (minutes)
 MIN_FREE_SLOT_MINUTES = 30
@@ -270,6 +273,27 @@ async def _sanitize_room_ids(
     return warnings
 
 
+def _validate_class_time_ranges(classes: list[ClassInputData]) -> None:
+    for c in classes:
+        if c.start_time < CLASS_START_MIN or c.start_time >= CLASS_END_MAX:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Class start_time must be between 05:30 and 22:00.",
+            )
+
+        if c.end_time > CLASS_END_MAX:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Class end_time must be at or before 22:00.",
+            )
+
+        if c.end_time <= c.start_time:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Class end_time must be later than start_time.",
+            )
+
+
 # ── Public service functions ─────────────────────────────────────────────────
 
 async def upload_ics_schedule(
@@ -286,6 +310,7 @@ async def upload_ics_schedule(
 
     parsed, warnings = parse_ics(ics_bytes)
     class_inputs = [_parsed_to_input(p) for p in parsed]
+    _validate_class_time_ranges(class_inputs)
     warnings.extend(await _sanitize_room_ids(db, class_inputs))
 
     try:
@@ -337,6 +362,7 @@ async def upload_manual_schedule(
         )
         for c in classes_in
     ]
+    _validate_class_time_ranges(class_inputs)
     await _sanitize_room_ids(db, class_inputs)
 
     try:
