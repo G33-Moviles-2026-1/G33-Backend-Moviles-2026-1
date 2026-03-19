@@ -3,13 +3,16 @@ from __future__ import annotations
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
+from datetime import datetime
+
 
 
 AnalyticsEventName = Literal[
     "home_search_submitted",
     "home_filters_opened",
     "booking_created",
+    "open_screen_timestamp"
 ]
 
 
@@ -25,6 +28,17 @@ class AnalyticsEventIn(BaseModel):
 
 class AnalyticsEventOut(BaseModel):
     ok: bool = True
+
+class AnalyticsEventOutRead(BaseModel):
+    session_id: UUID
+    device_id: str | None = None
+    user_email: str | None = None
+    event_name: str
+    screen: str | None = None
+    ts: datetime
+    duration_ms: int | None = None
+    props_json: dict
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ── Schedule import funnel ────────────────────────────────────────────────────
@@ -106,3 +120,10 @@ class ScheduleImportFunnelOut(BaseModel):
     most_common_method: str | None
     highest_dropoff_method: str | None  # method with worst step-to-step drop-off
     methods: list[MethodFunnelOut]
+
+class ScreenTimeReport(BaseModel):
+    screen: str
+    total_seconds: float
+
+class ScreenTimeResponse(BaseModel):
+    results: list[ScreenTimeReport]

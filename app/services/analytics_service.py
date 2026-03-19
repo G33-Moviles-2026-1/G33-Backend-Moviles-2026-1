@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from sqlalchemy.ext.asyncio import AsyncSession
+from app.db import models
 
 from app.db.repositories.analytics_repo import (
     ensure_session_exists,
@@ -17,6 +18,8 @@ from app.schemas.analytics import (
     ScheduleImportStepIn,
     ScheduleImportStepOut,
 )
+from sqlalchemy import func, select, text
+from datetime import timedelta
 
 
 async def track_analytics_event(
@@ -74,6 +77,43 @@ async def track_schedule_import_step(
 
     await db.commit()
     return ScheduleImportStepOut(ok=True)
+
+
+
+async def get_screen_time_stats(db: AsyncSession):
+    subq = (
+        select(
+            models.AnalyticsEvent.screen,
+            models.AnalyticsEvent.ts,
+            func.lead(models.AnalyticsEvent.ts)
+            .over(partition_by=models.AnalyticsEvent.session_id, order_by=models.AnalyticsEvent.ts)
+            .label("next_ts")
+        )
+        .where(models.AnalyticsEvent.event_name == "open_screen_timestamp")
+        .subquery()
+    )
+    stmt = (
+        select(
+            subq.c.screen,
+            func.sum(
+                func.extract("epoch", subq.c.next_ts - subq.c.ts)
+            ).label("total_seconds")
+        )
+        .where(subq.c.next_ts != None)
+        .group_by(subq.c.screen)
+        .order_by(text("total_seconds DESC"))
+    )
+
+    result = await db.execute(stmt)
+    rows = result.all()
+    
+    return [
+        {
+            "screen": row.screen, 
+            "total_seconds": round(float(row.total_seconds), 2)
+        } 
+        for row in rows
+    ]
 
 
 async def get_schedule_import_funnel(

@@ -205,7 +205,7 @@ class ScheduleClassWeekday(Base):
 class AnalyticsEvent(Base):
     __tablename__ = "analytics_events"
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    ts: Mapped[str] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
+    ts: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
     session_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("sessions.id"), nullable=False)
     user_email: Mapped[str | None] = mapped_column(ForeignKey("users.email"), nullable=True)
     event_name: Mapped[str] = mapped_column(String, nullable=False)
