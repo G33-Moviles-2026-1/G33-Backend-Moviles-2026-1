@@ -30,6 +30,7 @@ from app.db.repositories.schedule_repo import (
     user_exists,
 )
 from app.schemas.schedule import (
+    FreeSlotsForDayOut,
     FreeRoomsForDayOut,
     FreeSlotOut,
     ManualClassIn,
@@ -712,4 +713,39 @@ async def get_free_rooms_for_day(
         free_slots=[FreeSlotOut(start_time=s, end_time=e)
                     for s, e in free_slots],
         slots_with_rooms=slots_with_rooms,
+    )
+
+
+async def get_free_slots_for_day(
+    db: AsyncSession,
+    *,
+    user_email: str,
+    target_date: date,
+) -> FreeSlotsForDayOut:
+    schedule_id = await get_active_schedule_id(db, user_email)
+    if schedule_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No schedule found for this user. Upload one first.",
+        )
+
+    all_classes = await get_classes_with_weekdays(db, schedule_id)
+    weekday_str = _PYTHON_WEEKDAY_MAP[target_date.weekday()]
+
+    occupied: list[tuple[time, time]] = [
+        (cls.start_time, cls.end_time)
+        for cls in all_classes
+        if (
+            weekday_str in cls.weekdays
+            and cls.start_date <= target_date <= cls.end_date
+        )
+    ]
+
+    free_slots = _compute_free_slots(occupied)
+
+    return FreeSlotsForDayOut(
+        date=target_date,
+        weekday=weekday_str,
+        free_slots=[FreeSlotOut(start_time=s, end_time=e)
+                    for s, e in free_slots],
     )

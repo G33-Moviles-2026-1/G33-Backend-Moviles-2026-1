@@ -62,6 +62,12 @@ class FreeRoomsForDayOut(BaseModel):
     slots_with_rooms: list[SlotWithRoomsOut]
 
 
+class FreeSlotsForDayOut(BaseModel):
+    date: date
+    weekday: str
+    free_slots: list[FreeSlotOut]
+
+
 # ── Manual schedule input ────────────────────────────────────────────────────
 
 ManualWeekday = Literal[

@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
 from app.schemas.schedule import (
+    FreeSlotsForDayOut,
     FreeRoomsForDayOut,
     ManualScheduleIn,
     ManualScheduleOut,
@@ -22,6 +23,7 @@ from app.services.schedule_service import (
     delete_schedule_class,
     delete_schedule_occurrence,
     delete_user_schedule,
+    get_free_slots_for_day,
     get_free_rooms_for_day,
     get_weekly_schedule,
     list_schedule_classes,
@@ -145,6 +147,21 @@ async def get_week(
 
 
 # ── Free-room discovery ──────────────────────────────────────────────────────
+
+@router.get(
+    "/free-slots",
+    response_model=FreeSlotsForDayOut,
+    summary="Get only free time slots for the user on a given date",
+)
+async def get_free_slots(
+    request: Request,
+    date: str | None = None,
+    db: AsyncSession = Depends(get_db),
+) -> FreeSlotsForDayOut:
+    user_email = _require_active_user_email(request)
+    target = _parse_query_date(date)
+    return await get_free_slots_for_day(db, user_email=user_email, target_date=target)
+
 
 @router.get(
     "/free-rooms",

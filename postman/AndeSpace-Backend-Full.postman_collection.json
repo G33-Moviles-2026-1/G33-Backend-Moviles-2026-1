@@ -1,0 +1,439 @@
+{
+  "info": {
+    "name": "AndeSpace Backend Full",
+    "description": "Coleccion completa para endpoints activos: health, auth, ingest, rooms, bookings, analytics y schedule (session cookie).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_postman_id": "5f4ad00c-6e06-4f81-a464-3a8d8ab4f901"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8000" },
+    { "key": "userEmail", "value": "tu_usuario@uniandes.edu.co" },
+    { "key": "password", "value": "TuPassword123" },
+    { "key": "firstSemester", "value": "202610" },
+    { "key": "dateISO", "value": "2026-03-17" },
+    { "key": "dateDDMMYYYY", "value": "17-03-2026" },
+    { "key": "roomId", "value": "ML 515" },
+    { "key": "bookingId", "value": "00000000-0000-0000-0000-000000000000" },
+    { "key": "classId", "value": "00000000-0000-0000-0000-000000000000" },
+    { "key": "sessionId", "value": "11111111-1111-1111-1111-111111111111" },
+    { "key": "icsPath", "value": "C:/ruta/horario.ics" }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "GET /health",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["health"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "POST /signup/",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{userEmail}}\",\n  \"first_semester\": \"{{firstSemester}}\",\n  \"password\": \"{{password}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/signup/",
+              "host": ["{{baseUrl}}"],
+              "path": ["signup", ""]
+            }
+          }
+        },
+        {
+          "name": "POST /login/",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{userEmail}}\",\n  \"password\": \"{{password}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/login/",
+              "host": ["{{baseUrl}}"],
+              "path": ["login", ""]
+            }
+          }
+        },
+        {
+          "name": "GET /me/",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/me/",
+              "host": ["{{baseUrl}}"],
+              "path": ["me", ""]
+            }
+          }
+        },
+        {
+          "name": "POST /logout/",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseUrl}}/logout/",
+              "host": ["{{baseUrl}}"],
+              "path": ["logout", ""]
+            }
+          }
+        },
+        {
+          "name": "GET /email/{user_email}",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/email/{{userEmail}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["email", "{{userEmail}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Ingest",
+      "item": [
+        {
+          "name": "POST /ingest/run",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseUrl}}/ingest/run",
+              "host": ["{{baseUrl}}"],
+              "path": ["ingest", "run"]
+            }
+          }
+        },
+        {
+          "name": "GET /ingest/summary",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/ingest/summary",
+              "host": ["{{baseUrl}}"],
+              "path": ["ingest", "summary"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Rooms",
+      "item": [
+        {
+          "name": "POST /rooms/search",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"room_prefix\": \"ML\",\n  \"room_prefixes\": [],\n  \"date\": \"{{dateISO}}\",\n  \"since\": \"09:00:00\",\n  \"until\": \"12:00:00\",\n  \"building_codes\": [],\n  \"utilities\": [],\n  \"near_me\": false,\n  \"user_location\": null,\n  \"limit\": 20,\n  \"offset\": 0\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/rooms/search",
+              "host": ["{{baseUrl}}"],
+              "path": ["rooms", "search"]
+            }
+          }
+        },
+        {
+          "name": "GET /rooms/{room_id}/availability",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/rooms/{{roomId}}/availability?date_value={{dateISO}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["rooms", "{{roomId}}", "availability"],
+              "query": [
+                { "key": "date_value", "value": "{{dateISO}}" }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Bookings",
+      "description": "Requiere sesion activa. Corre login antes.",
+      "item": [
+        {
+          "name": "POST /bookings/",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"room_id\": \"{{roomId}}\",\n  \"date\": \"{{dateISO}}\",\n  \"start_time\": \"10:00:00\",\n  \"end_time\": \"11:00:00\",\n  \"purpose\": \"study_alone\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/bookings/",
+              "host": ["{{baseUrl}}"],
+              "path": ["bookings", ""]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const data = pm.response.json();",
+                  "  if (data && data.id) pm.collectionVariables.set('bookingId', data.id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /bookings/mine",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/bookings/mine",
+              "host": ["{{baseUrl}}"],
+              "path": ["bookings", "mine"]
+            }
+          }
+        },
+        {
+          "name": "DELETE /bookings/{booking_id}",
+          "request": {
+            "method": "DELETE",
+            "url": {
+              "raw": "{{baseUrl}}/bookings/{{bookingId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["bookings", "{{bookingId}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Analytics",
+      "item": [
+        {
+          "name": "POST /analytics/events",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"session_id\": \"{{sessionId}}\",\n  \"device_id\": \"postman-device\",\n  \"user_email\": \"{{userEmail}}\",\n  \"event_name\": \"home_search_submitted\",\n  \"screen\": \"home\",\n  \"duration_ms\": 1200,\n  \"props_json\": {\n    \"query\": \"ml\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/analytics/events",
+              "host": ["{{baseUrl}}"],
+              "path": ["analytics", "events"]
+            }
+          }
+        },
+        {
+          "name": "POST /analytics/schedule-import-step",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"session_id\": \"{{sessionId}}\",\n  \"device_id\": \"postman-device\",\n  \"user_email\": \"{{userEmail}}\",\n  \"method\": \"ics\",\n  \"step\": \"started\",\n  \"step_number\": 1,\n  \"props_json\": {}\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/analytics/schedule-import-step",
+              "host": ["{{baseUrl}}"],
+              "path": ["analytics", "schedule-import-step"]
+            }
+          }
+        },
+        {
+          "name": "GET /analytics/schedule-import-funnel",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/analytics/schedule-import-funnel",
+              "host": ["{{baseUrl}}"],
+              "path": ["analytics", "schedule-import-funnel"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Schedule",
+      "description": "Requiere sesion activa por cookie (login).",
+      "item": [
+        {
+          "name": "POST /schedule/upload/ics",
+          "request": {
+            "method": "POST",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": "{{icsPath}}"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/schedule/upload/ics",
+              "host": ["{{baseUrl}}"],
+              "path": ["schedule", "upload", "ics"]
+            }
+          }
+        },
+        {
+          "name": "POST /schedule/upload/manual",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"classes\": [\n    {\n      \"title\": \"Clase Demo\",\n      \"location_text\": \"ML 515\",\n      \"room_id\": \"ML 515\",\n      \"start_date\": \"2026-03-01\",\n      \"end_date\": \"2026-05-30\",\n      \"start_time\": \"09:30:00\",\n      \"end_time\": \"10:50:00\",\n      \"weekdays\": [\"monday\", \"wednesday\"]\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/schedule/upload/manual",
+              "host": ["{{baseUrl}}"],
+              "path": ["schedule", "upload", "manual"]
+            }
+          }
+        },
+        {
+          "name": "GET /schedule/week",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/schedule/week?date={{dateDDMMYYYY}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["schedule", "week"],
+              "query": [
+                { "key": "date", "value": "{{dateDDMMYYYY}}" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /schedule/free-slots",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/schedule/free-slots?date={{dateDDMMYYYY}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["schedule", "free-slots"],
+              "query": [
+                { "key": "date", "value": "{{dateDDMMYYYY}}" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /schedule/free-rooms",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/schedule/free-rooms?date={{dateDDMMYYYY}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["schedule", "free-rooms"],
+              "query": [
+                { "key": "date", "value": "{{dateDDMMYYYY}}" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /schedule/classes",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/schedule/classes",
+              "host": ["{{baseUrl}}"],
+              "path": ["schedule", "classes"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const data = pm.response.json();",
+                  "  if (data.classes && data.classes.length > 0) {",
+                  "    pm.collectionVariables.set('classId', data.classes[0].class_id);",
+                  "  }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "DELETE /schedule/class/{class_id}",
+          "request": {
+            "method": "DELETE",
+            "url": {
+              "raw": "{{baseUrl}}/schedule/class/{{classId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["schedule", "class", "{{classId}}"]
+            }
+          }
+        },
+        {
+          "name": "DELETE /schedule/class/{class_id}/occurrence",
+          "request": {
+            "method": "DELETE",
+            "url": {
+              "raw": "{{baseUrl}}/schedule/class/{{classId}}/occurrence?date={{dateDDMMYYYY}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["schedule", "class", "{{classId}}", "occurrence"],
+              "query": [
+                { "key": "date", "value": "{{dateDDMMYYYY}}" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "DELETE /schedule",
+          "request": {
+            "method": "DELETE",
+            "url": {
+              "raw": "{{baseUrl}}/schedule",
+              "host": ["{{baseUrl}}"],
+              "path": ["schedule"]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
