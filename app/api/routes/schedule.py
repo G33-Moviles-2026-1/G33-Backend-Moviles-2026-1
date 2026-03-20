@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
@@ -244,16 +244,17 @@ async def get_schedule_classes(
     user_email = _require_active_user_email(request)
     return await list_schedule_classes(db, user_email=user_email)
 
+
 @router.get(
-    "/recommendations/day", 
+    "/recommendations/day",
     response_model=DayRoomRecommendationsOut
-    )
+)
 async def room_recommendations_for_day(
+    request: Request,
     date: date,
     db: AsyncSession = Depends(get_db),
-    # reemplaza esto por tu mecanismo real de auth:
-    user_email: str = "test@uniandes.edu.co",
 ):
+    user_email = _require_active_user_email(request)
     return await get_room_recommendations_for_day(
         db,
         user_email=user_email,

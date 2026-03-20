@@ -10,10 +10,12 @@ from datetime import date, time
 from pydantic import BaseModel
 from app.db.models import Weekday
 
+
 class RoomDateAvailabilitySlotOut(BaseModel):
     start: time
     end: time
     is_available: bool
+
 
 class RoomDateAvailabilityOut(BaseModel):
     room_id: str
@@ -27,6 +29,7 @@ class RoomDateAvailabilityOut(BaseModel):
     utilities: list[str]
     available_slots: list[RoomDateAvailabilitySlotOut]
     blocked_slots: list[RoomDateAvailabilitySlotOut]
+
 
 class LocationIn(BaseModel):
     latitude: float
@@ -89,10 +92,27 @@ class RoomSearchItemOut(BaseModel):
     matching_windows: list[TimeWindowOut] = Field(default_factory=list)
 
     # NUEVO
-    weekly_availability: list[WeeklyAvailabilityWindowOut] = Field(default_factory=list)
+    weekly_availability: list[WeeklyAvailabilityWindowOut] = Field(
+        default_factory=list)
 
 
 class RoomSearchResponse(BaseModel):
     query: RoomSearchQueryOut
     total: int
     items: list[RoomSearchItemOut]
+
+
+class GapRoomOut(BaseModel):
+    room_id: str
+    building_name: str | None = None
+    capacity: int
+    reliability: float
+    utilities: list[UtilityType] = Field(default_factory=list)
+
+
+class GapRoomsResponse(BaseModel):
+    date: date
+    gap_start: time
+    gap_end: time
+    required_utilities: list[UtilityType] = Field(default_factory=list)
+    available_rooms: list[GapRoomOut]

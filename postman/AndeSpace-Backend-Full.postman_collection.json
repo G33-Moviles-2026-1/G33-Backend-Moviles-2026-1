@@ -138,6 +138,7 @@
     },
     {
       "name": "Rooms",
+      "description": "Busqueda de salones. GET /rooms/search/gap no requiere sesion activa.",
       "item": [
         {
           "name": "POST /rooms/search",
@@ -167,6 +168,24 @@
               "path": ["rooms", "{{roomId}}", "availability"],
               "query": [
                 { "key": "date_value", "value": "{{dateISO}}" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /rooms/search/gap",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/rooms/search/gap?date_value={{dateISO}}&gap_start=10:00:00&gap_end=11:00:00&utilities=power_outlet&utilities=videobeam",
+              "host": ["{{baseUrl}}"],
+              "path": ["rooms", "search", "gap"],
+              "query": [
+                { "key": "date_value", "value": "{{dateISO}}" },
+                { "key": "gap_start", "value": "10:00:00" },
+                { "key": "gap_end", "value": "11:00:00" },
+                { "key": "utilities", "value": "power_outlet" },
+                { "key": "utilities", "value": "videobeam" }
               ]
             }
           }
@@ -287,7 +306,7 @@
     },
     {
       "name": "Schedule",
-      "description": "Requiere sesion activa por cookie (login).",
+      "description": "Requiere sesion activa por cookie (login). Fechas en week/free-slots/free-rooms/occurrence: DD-MM-YYYY. Recomendaciones por dia usa date ISO (YYYY-MM-DD). Ventana de clases: inicio desde 05:30 y fin maximo 22:00.",
       "item": [
         {
           "name": "POST /schedule/upload/ics",
@@ -311,7 +330,7 @@
           }
         },
         {
-          "name": "POST /schedule/upload/manual",
+          "name": "POST /schedule/upload/manual (boundary 05:30)",
           "request": {
             "method": "POST",
             "header": [
@@ -319,7 +338,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"classes\": [\n    {\n      \"title\": \"Clase Demo\",\n      \"location_text\": \"ML 515\",\n      \"room_id\": \"ML 515\",\n      \"start_date\": \"2026-03-01\",\n      \"end_date\": \"2026-05-30\",\n      \"start_time\": \"09:30:00\",\n      \"end_time\": \"10:50:00\",\n      \"weekdays\": [\"monday\", \"wednesday\"]\n    }\n  ]\n}"
+              "raw": "{\n  \"classes\": [\n    {\n      \"title\": \"Clase Temprana\",\n      \"location_text\": \"ML 515\",\n      \"room_id\": \"ML 515\",\n      \"start_date\": \"2026-03-01\",\n      \"end_date\": \"2026-05-30\",\n      \"start_time\": \"05:30:00\",\n      \"end_time\": \"07:00:00\",\n      \"weekdays\": [\"monday\", \"wednesday\"]\n    }\n  ]\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/schedule/upload/manual",
@@ -338,6 +357,20 @@
               "path": ["schedule", "week"],
               "query": [
                 { "key": "date", "value": "{{dateDDMMYYYY}}" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /schedule/recommendations/day",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/schedule/recommendations/day?date={{dateISO}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["schedule", "recommendations", "day"],
+              "query": [
+                { "key": "date", "value": "{{dateISO}}" }
               ]
             }
           }
