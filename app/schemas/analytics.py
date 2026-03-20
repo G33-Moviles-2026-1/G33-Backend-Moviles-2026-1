@@ -53,6 +53,7 @@ class AnalyticsEventsListResponse(BaseModel):
 
 ScheduleImportMethod = Literal["ics", "pdf", "google", "manual"]
 
+
 # Each method defines ordered steps. step_number starts at 1.
 # Step names are intentionally human-readable for reporting.
 SCHEDULE_IMPORT_STEPS: dict[str, list[str]] = {
@@ -98,6 +99,8 @@ class ScheduleImportStepIn(BaseModel):
     props_json: dict = Field(default_factory=dict)
 
 
+class ScheduleImportStepOut(BaseModel):
+    ok: bool = True
 # ── Room gap search event (BQ) ───────────────────────────────────────────────
 
 class RoomGapSearchEventIn(BaseModel):
