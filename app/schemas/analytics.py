@@ -1,18 +1,20 @@
 from __future__ import annotations
 
+from datetime import date, datetime, time
 from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field, ConfigDict
-from datetime import datetime
 
+from app.db.models import UtilityType
 
 
 AnalyticsEventName = Literal[
     "home_search_submitted",
     "home_filters_opened",
     "booking_created",
-    "open_screen_timestamp"
+    "open_screen_timestamp",
+    "room_gap_search_submitted",
 ]
 
 
@@ -28,6 +30,7 @@ class AnalyticsEventIn(BaseModel):
 
 class AnalyticsEventOut(BaseModel):
     ok: bool = True
+
 
 class AnalyticsEventOutRead(BaseModel):
     session_id: UUID
@@ -94,6 +97,25 @@ class ScheduleImportStepOut(BaseModel):
     ok: bool = True
 
 
+# ── Room gap search event (BQ) ───────────────────────────────────────────────
+
+class RoomGapSearchEventIn(BaseModel):
+    """Emitted when a user submits a room gap search with utilities."""
+
+    session_id: UUID
+    device_id: str | None = None
+    user_email: str | None = None
+    date_value: date
+    gap_start: time
+    gap_end: time
+    utilities: list[UtilityType] = Field(default_factory=list)
+    props_json: dict = Field(default_factory=dict)
+
+
+class RoomGapSearchEventOut(BaseModel):
+    ok: bool = True
+
+
 # ── Funnel report ─────────────────────────────────────────────────────────────
 
 class FunnelStepStat(BaseModel):
@@ -121,9 +143,11 @@ class ScheduleImportFunnelOut(BaseModel):
     highest_dropoff_method: str | None  # method with worst step-to-step drop-off
     methods: list[MethodFunnelOut]
 
+
 class ScreenTimeReport(BaseModel):
     screen: str
     total_seconds: float
+
 
 class ScreenTimeResponse(BaseModel):
     results: list[ScreenTimeReport]

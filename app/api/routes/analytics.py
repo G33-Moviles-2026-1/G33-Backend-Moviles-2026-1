@@ -8,6 +8,8 @@ from app.db.session import get_db
 from app.schemas.analytics import (
     AnalyticsEventIn,
     AnalyticsEventOut,
+    RoomGapSearchEventIn,
+    RoomGapSearchEventOut,
     ScheduleImportFunnelOut,
     ScheduleImportStepIn,
     ScheduleImportStepOut,
@@ -16,6 +18,7 @@ from app.schemas.analytics import (
 )
 from app.services.analytics_service import (
     get_schedule_import_funnel,
+    track_room_gap_search_event,
     track_analytics_event,
     track_schedule_import_step,
     get_screen_time_stats
@@ -34,6 +37,23 @@ async def create_analytics_event(
     db: AsyncSession = Depends(get_db),
 ) -> AnalyticsEventOut:
     return await track_analytics_event(db, payload)
+
+
+@router.post(
+    "/room-gap-search",
+    response_model=RoomGapSearchEventOut,
+    status_code=status.HTTP_201_CREATED,
+    summary="Track room gap search event",
+    description=(
+        "Emit this event when a user submits a room gap search with utilities. "
+        "Used to answer the BQ about gap search behavior without returning room results."
+    ),
+)
+async def record_room_gap_search_event(
+    payload: RoomGapSearchEventIn,
+    db: AsyncSession = Depends(get_db),
+) -> RoomGapSearchEventOut:
+    return await track_room_gap_search_event(db, payload)
 
 
 # ── Schedule import funnel ────────────────────────────────────────────────────
@@ -72,9 +92,10 @@ async def schedule_import_funnel(
 ) -> ScheduleImportFunnelOut:
     return await get_schedule_import_funnel(db)
 
+
 @router.get(
     "/screen-timestamps",
-    response_model= List[AnalyticsEventOutRead], 
+    response_model=List[AnalyticsEventOutRead],
     summary="Get all screen opening timestamps",
 )
 async def get_screen_open_timestamps(
@@ -84,13 +105,14 @@ async def get_screen_open_timestamps(
     stmt = (
         select(models.AnalyticsEvent)
         .where(models.AnalyticsEvent.event_name == "open_screen_timestamp")
-        .order_by(models.AnalyticsEvent.ts.desc()) 
+        .order_by(models.AnalyticsEvent.ts.desc())
     )
-    
+
     result = await db.execute(stmt)
     events = result.scalars().all()
-    
+
     return events
+
 
 @router.get(
     "/screen-time-stats",

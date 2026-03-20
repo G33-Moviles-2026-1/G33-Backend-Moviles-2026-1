@@ -13,6 +13,8 @@ from app.schemas.analytics import (
     AnalyticsEventOut,
     FunnelStepStat,
     MethodFunnelOut,
+    RoomGapSearchEventIn,
+    RoomGapSearchEventOut,
     SCHEDULE_IMPORT_STEPS,
     ScheduleImportFunnelOut,
     ScheduleImportStepIn,
@@ -79,6 +81,36 @@ async def track_schedule_import_step(
     return ScheduleImportStepOut(ok=True)
 
 
+async def track_room_gap_search_event(
+    db: AsyncSession,
+    payload: RoomGapSearchEventIn,
+) -> RoomGapSearchEventOut:
+    await ensure_session_exists(
+        db,
+        session_id=payload.session_id,
+        device_id=payload.device_id,
+        user_email=payload.user_email,
+    )
+
+    await insert_analytics_event(
+        db,
+        session_id=payload.session_id,
+        user_email=payload.user_email,
+        event_name="room_gap_search_submitted",
+        screen="rooms",
+        duration_ms=None,
+        props_json={
+            "date_value": payload.date_value.isoformat(),
+            "gap_start": payload.gap_start.isoformat(),
+            "gap_end": payload.gap_end.isoformat(),
+            "utilities": [u.value for u in payload.utilities],
+            **payload.props_json,
+        },
+    )
+
+    await db.commit()
+    return RoomGapSearchEventOut(ok=True)
+
 
 async def get_screen_time_stats(db: AsyncSession):
     subq = (
@@ -106,12 +138,12 @@ async def get_screen_time_stats(db: AsyncSession):
 
     result = await db.execute(stmt)
     rows = result.all()
-    
+
     return [
         {
-            "screen": row.screen, 
+            "screen": row.screen,
             "total_seconds": round(float(row.total_seconds), 2)
-        } 
+        }
         for row in rows
     ]
 
