@@ -24,7 +24,7 @@ from app.db.models import (
 )
 
 
-# -- Data Transfer Objects ----------------------------------------------------
+# ── Data Transfer Objects ────────────────────────────────────────────────────
 
 @dataclass
 class ClassInputData:
@@ -78,7 +78,7 @@ async def existing_room_ids(db: AsyncSession, room_ids: list[str]) -> set[str]:
     return {row[0] for row in result.all()}
 
 
-# -- Helpers -----------------------------------------------------------------
+# ── Helpers ──────────────────────────────────────────────────────────────────
 
 async def purge_schedules_for_user(db: AsyncSession, user_email: str) -> None:
     """Delete all schedules (and their classes) for a user."""

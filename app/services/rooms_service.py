@@ -14,15 +14,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.time_rules import get_operating_hours
 from app.db.models import NavEdge, NavNode, RoomNavAnchor, UtilityType, Weekday
 from app.db.repositories.rooms_repo import (
-    fetch_rooms_for_exact_window,
     fetch_room_base_info,
     fetch_room_daily_slots,
     fetch_room_search_rows,
     fetch_weekly_availability_for_rooms,
 )
 from app.schemas.rooms import (
-    GapRoomOut,
-    GapRoomsResponse,
     RoomDateAvailabilityOut,
     RoomDateAvailabilitySlotOut,
     RoomSearchItemOut,
@@ -45,7 +42,6 @@ WEEKDAY_MAP = {
     6: Weekday.sunday,
 }
 
-
 @dataclass(slots=True)
 class ResolvedSearchParams:
     room_prefixes: list[str]
@@ -61,7 +57,6 @@ class ResolvedSearchParams:
     weekday: Weekday
 
 # --- UTILIDADES DE NAVEGACIÓN ---
-
 
 async def get_dijkstra_map(db: AsyncSession, start_node_id: uuid.UUID) -> dict[uuid.UUID, float]:
     """Calcula el costo mínimo en segundos desde un nodo hacia todos los demás."""
@@ -91,25 +86,20 @@ async def get_dijkstra_map(db: AsyncSession, start_node_id: uuid.UUID) -> dict[u
                 heapq.heappush(priority_queue, (distance, neighbor))
     return distances
 
-
 def _haversine_meters(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     earth_radius_m = 6371000.0
     d_lat, d_lon = radians(lat2 - lat1), radians(lon2 - lon1)
-    a = sin(d_lat / 2)**2 + cos(radians(lat1)) * \
-        cos(radians(lat2)) * sin(d_lon / 2)**2
+    a = sin(d_lat / 2)**2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(d_lon / 2)**2
     return earth_radius_m * 2 * asin(sqrt(a))
-
 
 async def _find_closest_node(db: AsyncSession, lat: float, lon: float) -> uuid.UUID:
     result = await db.execute(select(NavNode))
     nodes = result.scalars().all()
     if not nodes:
-        raise HTTPException(
-            status_code=500, detail="No navigation nodes found in database")
+        raise HTTPException(status_code=500, detail="No navigation nodes found in database")
     return min(nodes, key=lambda n: _haversine_meters(lat, lon, n.lat, n.lon)).id
 
 # --- LÓGICA DE DISPONIBILIDAD INDIVIDUAL ---
-
 
 async def get_room_date_availability(
     db: AsyncSession,
@@ -129,8 +119,7 @@ async def get_room_date_availability(
     weekday = WEEKDAY_MAP[target_date.weekday()]
     room = await fetch_room_base_info(db, room_id=room_id)
     if room is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="room was not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="room was not found")
 
     operating_hours = get_operating_hours(weekday)
     if operating_hours is None:
@@ -145,12 +134,9 @@ async def get_room_date_availability(
 
     return RoomDateAvailabilityOut(
         **_map_room_base_to_dict(room, target_date, weekday),
-        available_slots=[RoomDateAvailabilitySlotOut(
-            start=s.start_time, end=s.end_time, is_available=True) for s in available_slots],
-        blocked_slots=[RoomDateAvailabilitySlotOut(
-            start=s.start_time, end=s.end_time, is_available=False) for s in blocked_slots],
+        available_slots=[RoomDateAvailabilitySlotOut(start=s.start_time, end=s.end_time, is_available=True) for s in available_slots],
+        blocked_slots=[RoomDateAvailabilitySlotOut(start=s.start_time, end=s.end_time, is_available=False) for s in blocked_slots],
     )
-
 
 def _map_room_base_to_dict(room, target_date, weekday):
     return {
@@ -162,14 +148,11 @@ def _map_room_base_to_dict(room, target_date, weekday):
 
 # --- LÓGICA DE NORMALIZACIÓN Y RESOLUCIÓN ---
 
-
 def _normalize_text_token(value: str) -> str:
     return " ".join(value.replace("-", " ").upper().split())
 
-
 def _normalize_prefixes(payload: RoomSearchRequest) -> list[str]:
-    candidates = ([payload.room_prefix]
-                  if payload.room_prefix else []) + payload.room_prefixes
+    candidates = ([payload.room_prefix] if payload.room_prefix else []) + payload.room_prefixes
     normalized = []
     for val in candidates:
         cleaned = _normalize_text_token(val)
@@ -177,83 +160,52 @@ def _normalize_prefixes(payload: RoomSearchRequest) -> list[str]:
             normalized.append(cleaned)
     return normalized
 
-
 def _current_bogota_datetime() -> datetime:
     return datetime.now(BOGOTA_TZ)
 
-
 def _resolve_time_window(target_date: date, weekday: Weekday, since: time | None, until: time | None) -> tuple[time, time]:
     if since is None and until is None:
-        raise HTTPException(
-            status_code=400, detail="at least one of since or until must be provided")
-
+        raise HTTPException(status_code=400, detail="at least one of since or until must be provided")
+    
     op_hours = get_operating_hours(weekday)
     if op_hours is None:
-        raise HTTPException(
-            status_code=400, detail="campus is closed on sunday")
-
+        raise HTTPException(status_code=400, detail="campus is closed on sunday")
+    
     open_t, close_t = op_hours
     if since is None:
         now = _current_bogota_datetime()
-        since = max(time(now.hour, now.minute) if target_date ==
-                    now.date() else open_t, open_t)
+        since = max(time(now.hour, now.minute) if target_date == now.date() else open_t, open_t)
     if until is None:
         until = close_t
 
     if not (open_t <= since <= close_t) or not (open_t <= until <= close_t):
-        raise HTTPException(
-            status_code=400, detail=f"since/until must be between {open_t} and {close_t}")
+        raise HTTPException(status_code=400, detail=f"since/until must be between {open_t} and {close_t}")
     if since >= until:
-        raise HTTPException(
-            status_code=400, detail="since must be earlier than until")
-
+        raise HTTPException(status_code=400, detail="since must be earlier than until")
+    
     return since, until
-
-
-def _resolve_explicit_gap(target_date: date, gap_start: time, gap_end: time) -> Weekday:
-    weekday = WEEKDAY_MAP[target_date.weekday()]
-    op_hours = get_operating_hours(weekday)
-    if op_hours is None:
-        raise HTTPException(
-            status_code=400, detail="campus is closed on sunday")
-
-    open_t, close_t = op_hours
-    if not (open_t <= gap_start <= close_t) or not (open_t <= gap_end <= close_t):
-        raise HTTPException(
-            status_code=400, detail=f"gap_start/gap_end must be between {open_t} and {close_t}")
-    if gap_start >= gap_end:
-        raise HTTPException(
-            status_code=400, detail="gap_start must be earlier than gap_end")
-
-    return weekday
-
 
 def resolve_room_search_request(payload: RoomSearchRequest) -> ResolvedSearchParams:
     today = _current_bogota_datetime().date()
     if not (today <= payload.date <= today + timedelta(days=7)):
-        raise HTTPException(
-            status_code=400, detail="date must be within the next 7 days")
-
+        raise HTTPException(status_code=400, detail="date must be within the next 7 days")
+    
     if payload.near_me and payload.user_location is None:
-        raise HTTPException(
-            status_code=400, detail="user_location is required for near_me")
+        raise HTTPException(status_code=400, detail="user_location is required for near_me")
 
     weekday = WEEKDAY_MAP[payload.date.weekday()]
-    since, until = _resolve_time_window(
-        payload.date, weekday, payload.since, payload.until)
+    since, until = _resolve_time_window(payload.date, weekday, payload.since, payload.until)
 
     return ResolvedSearchParams(
         room_prefixes=_normalize_prefixes(payload),
         date=payload.date, since=since, until=until,
-        building_codes=list(dict.fromkeys(_normalize_text_token(c)
-                            for c in payload.building_codes if c)),
+        building_codes=list(dict.fromkeys(_normalize_text_token(c) for c in payload.building_codes if c)),
         utilities=payload.utilities, near_me=payload.near_me,
         user_location=payload.user_location, limit=payload.limit,
         offset=payload.offset, weekday=weekday,
     )
 
 # --- SERVICIO PRINCIPAL ---
-
 
 async def search_rooms(db: AsyncSession, payload: RoomSearchRequest) -> RoomSearchResponse:
     resolved = resolve_room_search_request(payload)
@@ -275,9 +227,8 @@ async def search_rooms(db: AsyncSession, payload: RoomSearchRequest) -> RoomSear
                 "utilities": row.utilities, "distance_seconds": None,
                 "matching_windows": [], "_earliest_start": row.rule_start_time
             }
-
-        window = TimeWindowOut(start=row.rule_start_time,
-                               end=row.rule_end_time)
+        
+        window = TimeWindowOut(start=row.rule_start_time, end=row.rule_end_time)
         if window not in grouped[row.room_id]["matching_windows"]:
             grouped[row.room_id]["matching_windows"].append(window)
         if row.rule_start_time < grouped[row.room_id]["_earliest_start"]:
@@ -287,8 +238,7 @@ async def search_rooms(db: AsyncSession, payload: RoomSearchRequest) -> RoomSear
         start_node_id = await _find_closest_node(db, resolved.user_location.latitude, resolved.user_location.longitude)
         cost_map = await get_dijkstra_map(db, start_node_id)
         anchors_res = await db.execute(select(RoomNavAnchor))
-        room_to_node = {
-            a.room_id: a.node_id for a in anchors_res.scalars().all()}
+        room_to_node = {a.room_id: a.node_id for a in anchors_res.scalars().all()}
 
         for rid, item in grouped.items():
             target_node_id = room_to_node.get(rid)
@@ -298,23 +248,21 @@ async def search_rooms(db: AsyncSession, payload: RoomSearchRequest) -> RoomSear
     items = list(grouped.values())
     if resolved.near_me:
         items.sort(key=lambda x: (
-            x["distance_seconds"] is None,
-            x["distance_seconds"] if x["distance_seconds"] is not None else float(
-                'inf'),
+            x["distance_seconds"] is None, 
+            x["distance_seconds"] if x["distance_seconds"] is not None else float('inf'),
             -x["reliability"], x["room_id"]
         ))
     else:
         items.sort(key=lambda x: (-x["reliability"], x["room_id"]))
 
-    paginated = items[resolved.offset: resolved.offset + resolved.limit]
+    paginated = items[resolved.offset : resolved.offset + resolved.limit]
     weekly_map = await fetch_weekly_availability_for_rooms(db, room_ids=[i["room_id"] for i in paginated])
 
     response_items = [
         RoomSearchItemOut(
             **{k: v for k, v in item.items() if not k.startswith("_") and k not in ["distance_seconds", "matching_windows"]},
             distance_seconds=item["distance_seconds"],
-            matching_windows=sorted(
-                item["matching_windows"], key=lambda w: w.start),
+            matching_windows=sorted(item["matching_windows"], key=lambda w: w.start),
             weekly_availability=[
                 WeeklyAvailabilityWindowOut(
                     day=w.day, start=w.start_time, end=w.end_time,
@@ -328,43 +276,4 @@ async def search_rooms(db: AsyncSession, payload: RoomSearchRequest) -> RoomSear
         query=RoomSearchQueryOut(**asdict(resolved)),
         total=len(items),
         items=response_items
-    )
-
-
-async def get_gap_rooms(
-    db: AsyncSession,
-    *,
-    target_date: date,
-    gap_start: time,
-    gap_end: time,
-    utilities: list[UtilityType],
-) -> GapRoomsResponse:
-    weekday = _resolve_explicit_gap(target_date, gap_start, gap_end)
-
-    rows = await fetch_rooms_for_exact_window(
-        db,
-        target_date=target_date,
-        weekday=weekday,
-        window_start=gap_start,
-        window_end=gap_end,
-        required_utilities=utilities,
-    )
-
-    rooms = [
-        GapRoomOut(
-            room_id=r.room_id,
-            building_name=r.building_name,
-            capacity=r.capacity,
-            reliability=r.reliability,
-            utilities=r.utilities,
-        )
-        for r in sorted(rows, key=lambda x: (-x.reliability, x.room_id))
-    ]
-
-    return GapRoomsResponse(
-        date=target_date,
-        gap_start=gap_start,
-        gap_end=gap_end,
-        required_utilities=utilities,
-        available_rooms=rooms,
     )

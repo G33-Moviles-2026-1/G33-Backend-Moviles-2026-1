@@ -1,12 +1,11 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
-from app.db.models import UtilityType
-from app.schemas.rooms import GapRoomsResponse, RoomSearchRequest, RoomSearchResponse
-from app.services.rooms_service import get_gap_rooms, search_rooms
+from app.schemas.rooms import RoomSearchRequest, RoomSearchResponse
+from app.services.rooms_service import search_rooms
 
-from datetime import date, time
+from datetime import date
 from app.schemas.rooms import RoomDateAvailabilityOut
 from app.services.rooms_service import get_room_date_availability
 
@@ -32,20 +31,3 @@ async def search_rooms_endpoint(
     db: AsyncSession = Depends(get_db),
 ) -> RoomSearchResponse:
     return await search_rooms(db, payload)
-
-
-@router.get("/search/gap", response_model=GapRoomsResponse)
-async def search_rooms_by_gap(
-    date_value: date,
-    gap_start: time,
-    gap_end: time,
-    utilities: list[UtilityType] = Query(default=[]),
-    db: AsyncSession = Depends(get_db),
-) -> GapRoomsResponse:
-    return await get_gap_rooms(
-        db,
-        target_date=date_value,
-        gap_start=gap_start,
-        gap_end=gap_end,
-        utilities=utilities,
-    )

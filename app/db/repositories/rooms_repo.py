@@ -28,13 +28,11 @@ from app.core.config import settings
 from app.core.time_rules import clip_to_operating_hours
 from app.db.models import Booking, BookingStatus, Room, RoomAvailabilityRule, Weekday
 
-
 @dataclass(slots=True)
 class RoomDailySlotRow:
     start_time: time
     end_time: time
     is_available: bool
-
 
 @dataclass(slots=True)
 class RoomDailyAvailabilityRow:
@@ -47,7 +45,6 @@ class RoomDailyAvailabilityRow:
     utilities: list[UtilityType]
     available_slots: list[RoomDailySlotRow]
     blocked_slots: list[RoomDailySlotRow]
-
 
 @dataclass(slots=True)
 class RoomSearchRow:
@@ -74,15 +71,6 @@ class WeeklyAvailabilityRow:
     valid_to: date
 
 
-@dataclass(slots=True)
-class GapRoomRow:
-    room_id: str
-    building_name: str | None
-    capacity: int
-    reliability: float
-    utilities: list[UtilityType]
-
-
 async def fetch_room_base_info(
     db: AsyncSession,
     *,
@@ -92,8 +80,7 @@ async def fetch_room_base_info(
         select(
             Room.id.label("room_id"),
             Room.building_code.label("building_code"),
-            func.coalesce(Room.building_name, Building.name).label(
-                "building_name"),
+            func.coalesce(Room.building_name, Building.name).label("building_name"),
             Room.room_number.label("room_number"),
             Room.capacity.label("capacity"),
             Room.reliability.label("reliability"),
@@ -287,7 +274,7 @@ async def fetch_room_search_rows(
     building_codes: list[str],
     utilities: list[UtilityType],
 ) -> list[RoomSearchRow]:
-
+    
     effective_window = clip_to_operating_hours(weekday, since, until)
     if effective_window is None:
         return []
@@ -298,8 +285,7 @@ async def fetch_room_search_rows(
         select(
             Room.id.label("room_id"),
             Room.building_code.label("building_code"),
-            func.coalesce(Room.building_name, Building.name).label(
-                "building_name"),
+            func.coalesce(Room.building_name, Building.name).label("building_name"),
             Room.room_number.label("room_number"),
             Room.capacity.label("capacity"),
             Room.reliability.label("reliability"),
@@ -444,90 +430,3 @@ async def fetch_weekly_availability_for_rooms(
         )
 
     return weekly_map
-
-
-async def fetch_rooms_for_exact_window(
-    db: AsyncSession,
-    *,
-    target_date: date,
-    weekday: Weekday,
-    window_start: time,
-    window_end: time,
-    required_utilities: list[UtilityType],
-) -> list[GapRoomRow]:
-    stmt = (
-        select(
-            Room.id.label("room_id"),
-            func.coalesce(Room.building_name, Building.name).label(
-                "building_name"),
-            Room.capacity,
-            Room.reliability,
-        )
-        .join(RoomAvailabilityRule, RoomAvailabilityRule.room_id == Room.id)
-        .join(Building, Building.code == Room.building_code)
-        .where(
-            RoomAvailabilityRule.term_id == settings.current_term_id,
-            RoomAvailabilityRule.day == weekday,
-            RoomAvailabilityRule.valid_from <= target_date,
-            RoomAvailabilityRule.valid_to >= target_date,
-            RoomAvailabilityRule.start_time <= window_start,
-            RoomAvailabilityRule.end_time >= window_end,
-        )
-    )
-
-    if required_utilities:
-        utilities_filter_subquery = (
-            select(RoomUtility.room_id)
-            .where(RoomUtility.utility.in_(required_utilities))
-            .group_by(RoomUtility.room_id)
-            .having(func.count(func.distinct(RoomUtility.utility)) == len(required_utilities))
-        )
-        stmt = stmt.where(Room.id.in_(utilities_filter_subquery))
-
-    result = await db.execute(stmt.order_by(Room.id.asc()))
-    rows_raw = result.all()
-    if not rows_raw:
-        return []
-
-    room_ids = list({row.room_id for row in rows_raw})
-
-    bookings_result = await db.execute(
-        select(Booking.room_id, Booking.start_time, Booking.end_time)
-        .where(
-            Booking.term_id == settings.current_term_id,
-            Booking.date == target_date,
-            Booking.status == BookingStatus.active,
-            Booking.room_id.in_(room_ids),
-        )
-        .order_by(Booking.room_id.asc(), Booking.start_time.asc())
-    )
-    bookings_map: dict[str, list[tuple[time, time]]] = {}
-    for room_id, s, e in bookings_result.all():
-        bookings_map.setdefault(room_id, []).append((s, e))
-
-    utilities_map = await _fetch_utilities_for_rooms(db, room_ids)
-
-    out: list[GapRoomRow] = []
-    seen: set[str] = set()
-    for row in rows_raw:
-        if row.room_id in seen:
-            continue
-
-        room_bookings = bookings_map.get(row.room_id, [])
-        blocked = any(bs < window_end and be >
-                      window_start for bs, be in room_bookings)
-        if blocked:
-            continue
-
-        seen.add(row.room_id)
-        out.append(
-            GapRoomRow(
-                room_id=row.room_id,
-                building_name=row.building_name,
-                capacity=row.capacity,
-                reliability=float(row.reliability),
-                utilities=utilities_map.get(row.room_id, []),
-            )
-        )
-
-    return out
