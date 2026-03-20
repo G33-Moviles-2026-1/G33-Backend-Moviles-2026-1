@@ -44,6 +44,11 @@ class AnalyticsEventOutRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class AnalyticsEventsListResponse(BaseModel):
+    total: int
+    items: list[AnalyticsEventOutRead]
+
+
 # ── Schedule import funnel ────────────────────────────────────────────────────
 
 ScheduleImportMethod = Literal["ics", "pdf", "google", "manual"]
@@ -91,10 +96,6 @@ class ScheduleImportStepIn(BaseModel):
     step: str  # one of SCHEDULE_IMPORT_STEPS[method]
     step_number: int  # 1-based position in the funnel
     props_json: dict = Field(default_factory=dict)
-
-
-class ScheduleImportStepOut(BaseModel):
-    ok: bool = True
 
 
 # ── Room gap search event (BQ) ───────────────────────────────────────────────

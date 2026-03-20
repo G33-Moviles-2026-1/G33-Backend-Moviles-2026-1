@@ -39,6 +39,23 @@ async def create_analytics_event(
     return await track_analytics_event(db, payload)
 
 
+@router.get(
+    "/events",
+    response_model=List[AnalyticsEventOutRead],
+    summary="List analytics events by event name",
+)
+async def list_analytics_events(
+    event_name: str,
+    db: AsyncSession = Depends(get_db),
+) -> List[AnalyticsEventOutRead]:
+    stmt = select(models.AnalyticsEvent).where(models.AnalyticsEvent.event_name == event_name)
+
+    stmt = stmt.order_by(models.AnalyticsEvent.ts.desc())
+    result = await db.execute(stmt)
+    events = result.scalars().all()
+    return [AnalyticsEventOutRead.model_validate(event) for event in events]
+
+
 @router.post(
     "/room-gap-search",
     response_model=RoomGapSearchEventOut,
