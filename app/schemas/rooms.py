@@ -84,7 +84,7 @@ class RoomSearchItemOut(BaseModel):
     capacity: int
     reliability: float
     utilities: list[UtilityType] = Field(default_factory=list)
-    distance_meters: float | None = None
+    distance_seconds: float | None = None
 
     matching_windows: list[TimeWindowOut] = Field(default_factory=list)
 

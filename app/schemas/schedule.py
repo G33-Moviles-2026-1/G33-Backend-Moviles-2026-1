@@ -127,3 +127,38 @@ class ScheduleClassBaseOut(BaseModel):
 
 class ScheduleClassesOut(BaseModel):
     classes: list[ScheduleClassBaseOut]
+
+
+class RoomRecommendationReasonOut(BaseModel):
+    near_previous_class: bool
+    near_next_class: bool
+    frequent_building_match: bool
+    frequent_floor_match: bool
+
+
+class RecommendedRoomOut(BaseModel):
+    room_id: str
+    building_name: str | None = None
+    capacity: int
+    reliability: float
+
+    score: float
+    from_previous_seconds: float | None = None
+    to_next_seconds: float | None = None
+
+    matches_frequent_building: bool = False
+    matches_frequent_floor: bool = False
+
+    reasons: RoomRecommendationReasonOut
+
+
+class SlotRoomRecommendationsOut(BaseModel):
+    slot_start: time
+    slot_end: time
+    recommended_rooms: list[RecommendedRoomOut]
+
+
+class DayRoomRecommendationsOut(BaseModel):
+    date: date
+    weekday: str
+    slots: list[SlotRoomRecommendationsOut]

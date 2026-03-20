@@ -18,6 +18,7 @@ from app.schemas.schedule import (
     ScheduleDeleteOut,
     ScheduleUploadOut,
     WeeklyScheduleOut,
+    DayRoomRecommendationsOut,
 )
 from app.services.schedule_service import (
     delete_schedule_class,
@@ -30,6 +31,7 @@ from app.services.schedule_service import (
     upload_ics_schedule,
     upload_manual_schedule,
 )
+from app.services.recommendation_service import get_room_recommendations_for_day
 
 router = APIRouter(prefix="/schedule", tags=["schedule"])
 
@@ -241,3 +243,19 @@ async def get_schedule_classes(
 ) -> ScheduleClassesOut:
     user_email = _require_active_user_email(request)
     return await list_schedule_classes(db, user_email=user_email)
+
+@router.get(
+    "/recommendations/day", 
+    response_model=DayRoomRecommendationsOut
+    )
+async def room_recommendations_for_day(
+    date: date,
+    db: AsyncSession = Depends(get_db),
+    # reemplaza esto por tu mecanismo real de auth:
+    user_email: str = "test@uniandes.edu.co",
+):
+    return await get_room_recommendations_for_day(
+        db,
+        user_email=user_email,
+        target_date=date,
+    )

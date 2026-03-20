@@ -261,7 +261,7 @@ async def search_rooms(db: AsyncSession, payload: RoomSearchRequest) -> RoomSear
     response_items = [
         RoomSearchItemOut(
             **{k: v for k, v in item.items() if not k.startswith("_") and k not in ["distance_seconds", "matching_windows"]},
-            distance_meters=item["distance_seconds"], 
+            distance_seconds=item["distance_seconds"],
             matching_windows=sorted(item["matching_windows"], key=lambda w: w.start),
             weekly_availability=[
                 WeeklyAvailabilityWindowOut(
