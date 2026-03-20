@@ -715,7 +715,7 @@ async def get_free_rooms_for_day(
         # Rooms whose availability rule overlaps this specific slot
         matching: dict[str, RoomInSlotOut] = {}
         for r in room_rows:
-            if r.rule_start < slot_end and r.rule_end > slot_start:
+            if r.rule_start <= slot_end and r.rule_end >= slot_start:
                 if r.room_id not in matching:
                     matching[r.room_id] = RoomInSlotOut(
                         room_id=r.room_id,
