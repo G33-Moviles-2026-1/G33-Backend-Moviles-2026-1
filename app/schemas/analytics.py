@@ -15,6 +15,7 @@ AnalyticsEventName = Literal[
     "booking_created",
     "open_screen_timestamp",
     "room_gap_search_submitted",
+    "schedule_import_step",
 ]
 
 
