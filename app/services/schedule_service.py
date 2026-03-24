@@ -254,12 +254,29 @@ def _parsed_to_input(p: _ParsedClass) -> ClassInputData:
         weekdays=p.weekdays,
     )
 
+def _normalize_room_id(value: str | None) -> str | None:
+    if value is None:
+        return None
+
+    normalized = value.strip()
+    if not normalized:
+        return None
+
+    normalized = normalized.replace("_", " ")
+    normalized = re.sub(r"\s+", " ", normalized)
+    normalized = normalized.upper()
+
+    return normalized
 
 async def _sanitize_room_ids(
     db: AsyncSession,
     classes: list[ClassInputData],
 ) -> list[str]:
-    """Set unknown room IDs to None to avoid FK failures and return warnings."""
+    """Normalize room IDs, keep valid ones, and move invalid ones to location_text."""
+    
+    for c in classes:
+        c.room_id = _normalize_room_id(c.room_id)
+
     raw_room_ids = sorted({c.room_id for c in classes if c.room_id})
     found = await existing_room_ids(db, raw_room_ids)
 
@@ -269,7 +286,12 @@ async def _sanitize_room_ids(
             warnings.append(
                 f"Room '{c.room_id}' was not found in DB. Saved as location text only."
             )
+
+            if not c.location_text or not c.location_text.strip():
+                c.location_text = c.room_id
+
             c.room_id = None
+
     return warnings
 
 
