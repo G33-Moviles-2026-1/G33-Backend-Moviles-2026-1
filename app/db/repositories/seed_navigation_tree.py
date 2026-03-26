@@ -46,16 +46,61 @@ BUILDING_INFO = {
 }
 
 CONNECTIONS = [
+    # --- CONEXIONES EDIFICIO C ---
     ("C", 1, "B", 4, 10, "connector", True),
     ("C", 2, "O", 1, 30, "connector", True),
     ("C", 4, "O", 1, 20, "connector", True),
     ("C", 1, "LL", 3, 20, "connector", True),
     ("C", 1, "W", 4, 30, "connector", True),
+    ("C", 1, "W", 3, 20, "connector", True),
+    ("C", 1, "W", 6, 40, "connector", True),
+    ("C", 2, "W", 3, 30, "connector", True),
+    ("C", 2, "W", 4, 20, "connector", True),
+    ("C", 2, "W", 6, 30, "connector", True),
+    ("C", 4, "W", 6, 30, "connector", True),
+    ("C", 4, "S1", 1, 80, "connector", True),
+    ("C", 2, "S1", 1, 100, "connector", True),
+
+    # --- CONEXIONES ML ---
+    ("ML", 2, "LL", 1, 30, "connector", True),
+    ("ML", 2, "W", 1, 30, "connector", True),
+    ("ML", 5, "W", 5, 15, "connector", True),
     ("ML", 2, "SD", 1, 50, "connector", True),
+    ("ML", 2, "AU", 1, 40, "connector", True),
+    ("ML", 2, "RGD", 1, 40, "connector", True),
+    ("ML", 2, "RGD", 0, 35, "connector", True),
+
+    # --- CONEXIONES AU ---
+    ("AU", 1, "RGD", 1, 25, "connector", True),
+    ("AU", 1, "RGD", 0, 20, "connector", True),
+    ("AU", 4, "RGD", 3, 10, "connector", True),
+    ("AU", 1, "SD", 1, 45, "connector", True),
+
+    # --- CONEXIONES SD ---
     ("SD", 1, "RGD", 0, 60, "connector", True),
+    ("SD", 1, "RGD", 1, 75, "connector", True),
+
+    # --- CONEXIONES RGD ---
+    ("RGD", 1, "B", 1, 30, "connector", True),
+
+    # --- CONEXIONES O ---
+    ("O", 1, "Q", 1, 25, "connector", True),
+    ("O", 1, "S1", 1, 120, "connector", True),
+
+    # --- CONEXIONES LL ---
+    ("LL", 1, "W", 1, 5, "connector", True),
+    ("LL", 2, "W", 2, 5, "connector", True),
+    ("LL", 3, "W", 3, 10, "connector", True),
+    ("LL", 1, "B", 3, 15, "connector", True),
+
+    # --- CONEXIONES S1 ---
+    ("S1", 1, "W", 6, 30, "connector", True),
     ("S1", 1, "R", 1, 20, "connector", True),
+    ("S1", 1, "TX", 1, 20, "connector", True),
+
+    # --- CONEXIONES TX ---
     ("TX", 1, "R", 1, 10, "connector", True),
-    # ... añade aquí el resto de tus conexiones de la lista anterior
+    ("TX", 2, "R", 2, 10, "connector", True),
 ]
 
 # -------------------------------------------------------------------
