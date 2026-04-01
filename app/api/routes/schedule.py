@@ -249,11 +249,13 @@ async def get_schedule_classes(
     response_model=DayRoomRecommendationsOut
     )
 async def room_recommendations_for_day(
+    request: Request,
     date: date,
     db: AsyncSession = Depends(get_db),
-    # reemplaza esto por tu mecanismo real de auth:
     user_email: str = "test@uniandes.edu.co",
 ):
+    user_email = _require_active_user_email(request)
+
     return await get_room_recommendations_for_day(
         db,
         user_email=user_email,
