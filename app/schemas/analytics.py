@@ -16,6 +16,7 @@ AnalyticsEventName = Literal[
     "open_screen_timestamp",
     "room_gap_search_submitted",
     "schedule_import_step",
+    "favorite_submitted",
 ]
 
 
