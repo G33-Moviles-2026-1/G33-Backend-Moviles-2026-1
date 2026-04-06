@@ -252,7 +252,6 @@ async def room_recommendations_for_day(
     request: Request,
     date: date,
     db: AsyncSession = Depends(get_db),
-    user_email: str = "test@uniandes.edu.co",
 ):
     user_email = _require_active_user_email(request)
 
