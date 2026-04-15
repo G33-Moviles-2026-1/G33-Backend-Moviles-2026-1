@@ -4,6 +4,10 @@ from typing import List
 from sqlalchemy import select
 from app.db import models
 from app.db.session import get_db
+from app.schemas.analytics import UserScreenTimeDistributionOut
+from app.services.analytics_service import get_user_screen_time_distribution
+from datetime import date
+
 
 from app.schemas.analytics import (
     AnalyticsEventIn,
@@ -140,4 +144,16 @@ async def screen_time_stats(
     db: AsyncSession = Depends(get_db)
 ):
     stats = await get_screen_time_stats(db)
+    return {"results": stats}
+
+
+@router.get(
+    "/screen-time-distribution",
+    response_model=UserScreenTimeDistributionOut,
+    summary="Get screen time distribution per user for Power BI",
+)
+async def screen_time_distribution(
+    db: AsyncSession = Depends(get_db)
+):
+    stats = await get_user_screen_time_distribution(db)
     return {"results": stats}

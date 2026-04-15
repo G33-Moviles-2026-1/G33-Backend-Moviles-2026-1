@@ -50,7 +50,6 @@ class AnalyticsEventsListResponse(BaseModel):
     total: int
     items: list[AnalyticsEventOutRead]
 
-
 # ── Schedule import funnel ────────────────────────────────────────────────────
 
 ScheduleImportMethod = Literal["ics", "pdf", "google", "manual"]
@@ -120,6 +119,15 @@ class RoomGapSearchEventIn(BaseModel):
 
 class RoomGapSearchEventOut(BaseModel):
     ok: bool = True
+
+class UserScreenTimeReport(BaseModel):
+    date: date 
+    screen: str
+    user_email: str
+    total_seconds: float
+
+class UserScreenTimeDistributionOut(BaseModel):
+    results: list[UserScreenTimeReport]
 
 
 # ── Funnel report ─────────────────────────────────────────────────────────────

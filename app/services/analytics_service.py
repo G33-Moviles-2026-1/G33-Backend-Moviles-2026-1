@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import models
+from sqlalchemy import func, select, text, cast, String, Date
+from datetime import date
+
 
 from app.db.repositories.analytics_repo import (
     ensure_session_exists,
@@ -20,7 +23,7 @@ from app.schemas.analytics import (
     ScheduleImportStepIn,
     ScheduleImportStepOut,
 )
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select, text, cast, String
 from datetime import timedelta
 
 
@@ -80,6 +83,54 @@ async def track_schedule_import_step(
     await db.commit()
     return ScheduleImportStepOut(ok=True)
 
+
+async def get_user_screen_time_distribution(
+    db: AsyncSession
+):
+    subq = (
+        select(
+            cast(models.AnalyticsEvent.ts, Date).label("event_date"),
+            models.AnalyticsEvent.screen,
+            func.coalesce(
+                models.AnalyticsEvent.user_email, 
+                cast(models.AnalyticsEvent.session_id, String)
+            ).label("user_email"),
+            models.AnalyticsEvent.ts,
+            func.lead(models.AnalyticsEvent.ts)
+            .over(partition_by=models.AnalyticsEvent.session_id, order_by=models.AnalyticsEvent.ts)
+            .label("next_ts")
+        )
+        .where(models.AnalyticsEvent.event_name == "open_screen_timestamp")
+    )
+
+    subq = subq.subquery()
+
+    stmt = (
+        select(
+            subq.c.event_date,
+            subq.c.screen,
+            subq.c.user_email,
+            func.sum(
+                func.extract("epoch", subq.c.next_ts - subq.c.ts)
+            ).label("total_seconds")
+        )
+        .where(subq.c.next_ts != None)
+        .where(func.extract("epoch", subq.c.next_ts - subq.c.ts) < 1800)
+        .group_by(subq.c.event_date, subq.c.screen, subq.c.user_email)
+        .order_by(subq.c.event_date.desc(), subq.c.screen, text("total_seconds DESC"))
+    )
+
+    result = await db.execute(stmt)
+    
+    return [
+        {
+            "date": row.event_date,
+            "screen": row.screen,
+            "user_email": row.user_email,
+            "total_seconds": round(float(row.total_seconds), 2)
+        }
+        for row in result.all()
+    ]
 
 async def track_room_gap_search_event(
     db: AsyncSession,
