@@ -17,7 +17,6 @@ from app.db.repositories.rooms_repo import (
     fetch_room_base_info,
     fetch_room_daily_slots,
     fetch_room_search_rows,
-    fetch_weekly_availability_for_rooms,
 )
 from app.schemas.rooms import (
     RoomDateAvailabilityOut,
@@ -27,7 +26,6 @@ from app.schemas.rooms import (
     RoomSearchRequest,
     RoomSearchResponse,
     TimeWindowOut,
-    WeeklyAvailabilityWindowOut,
 )
 
 BOGOTA_TZ = ZoneInfo("America/Bogota")
@@ -256,19 +254,12 @@ async def search_rooms(db: AsyncSession, payload: RoomSearchRequest) -> RoomSear
         items.sort(key=lambda x: (-x["reliability"], x["room_id"]))
 
     paginated = items[resolved.offset : resolved.offset + resolved.limit]
-    weekly_map = await fetch_weekly_availability_for_rooms(db, room_ids=[i["room_id"] for i in paginated])
 
     response_items = [
         RoomSearchItemOut(
             **{k: v for k, v in item.items() if not k.startswith("_") and k not in ["distance_seconds", "matching_windows"]},
             distance_seconds=item["distance_seconds"],
             matching_windows=sorted(item["matching_windows"], key=lambda w: w.start),
-            weekly_availability=[
-                WeeklyAvailabilityWindowOut(
-                    day=w.day, start=w.start_time, end=w.end_time,
-                    valid_from=w.valid_from, valid_to=w.valid_to
-                ) for w in weekly_map.get(item["room_id"], [])
-            ]
         ) for item in paginated
     ]
 

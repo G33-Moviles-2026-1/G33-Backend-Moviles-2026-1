@@ -88,9 +88,6 @@ class RoomSearchItemOut(BaseModel):
 
     matching_windows: list[TimeWindowOut] = Field(default_factory=list)
 
-    # NUEVO
-    weekly_availability: list[WeeklyAvailabilityWindowOut] = Field(default_factory=list)
-
 
 class RoomSearchResponse(BaseModel):
     query: RoomSearchQueryOut
