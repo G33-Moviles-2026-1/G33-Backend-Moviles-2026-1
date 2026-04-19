@@ -1,8 +1,8 @@
+from __future__ import annotations
 from app.db.repositories.bookings_repo import (
     UserBookedRoomPreference,
     list_user_room_preferences,
 )
-from __future__ import annotations
 
 import re
 import uuid
