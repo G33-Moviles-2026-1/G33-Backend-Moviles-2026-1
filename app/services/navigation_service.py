@@ -41,7 +41,7 @@ class NavigationService:
         return min(nodes, key=lambda n: self._haversine_meters(lat, lon, n.lat, n.lon))
 
     # --- ALGORITMOS DE GRAFOS ---
-    async def get_dijkstra_map(self, start_node_id: UUID) -> dict[UUID, float]:
+    async def get_cost_map(self, start_node_id: UUID) -> dict[UUID, float]:
         """Calcula el costo mínimo a todos los nodos (para el sorting de búsqueda)."""
         edges_res = await self.db.execute(select(NavEdge))
         edges = edges_res.scalars().all()
