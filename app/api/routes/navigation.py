@@ -32,3 +32,19 @@ async def get_path(
         total_time_seconds=result["total_time_seconds"],
         steps=result["steps"],
     )
+
+
+@router.get("/nearest-node")
+async def get_nearest_node(
+    lat: float,
+    lon: float,
+    db: AsyncSession = Depends(get_db),
+):
+    nav = NavigationService(db)
+    node = await nav.find_nearest_node(lat, lon)
+    return {
+        "id": node.id,
+        "building_code": node.building_code,
+        "floor": node.floor,
+        "node_type": node.node_type,
+    }

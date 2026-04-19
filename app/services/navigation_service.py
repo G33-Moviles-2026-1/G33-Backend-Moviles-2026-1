@@ -4,7 +4,7 @@ import re
 from uuid import UUID
 from sqlalchemy import select
 from fastapi import HTTPException
-from app.db.models import NavNode, NavEdge, RoomNavAnchor
+from app.db.models import NavNode, NavEdge, NavNodeType, RoomNavAnchor
 from math import asin, cos, radians, sin, sqrt
 
 class NavigationService:
@@ -18,16 +18,50 @@ class NavigationService:
         a = sin(d_lat / 2)**2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(d_lon / 2)**2
         return earth_radius_m * 2 * asin(sqrt(a))
 
-    async def find_node_for_room(self, room_id: str) -> NavNode:
-        # Insert space between letters and digits if missing: "LL303" → "LL 303"
-        normalized = re.sub(r'([A-Za-z])(\d)', r'\1 \2', room_id.strip()).upper()
+    async def find_node_for_room(self, raw: str) -> NavNode:
+        # Insert space between letters and digits if missing: "ML515" → "ML 515"
+        normalized = re.sub(r'([A-Za-z])(\d)', r'\1 \2', raw.strip()).upper()
         normalized = " ".join(normalized.split())
+
+        parts = normalized.split(" ", 1)
+        building = parts[0]
+
+        if len(parts) == 1:
+            # Only building code → hallway on floor 1
+            return await self._find_hallway_node(building, 1)
+
+        number_part = parts[1]
+
+        if len(number_part) <= 2 and number_part.lstrip("-").isdigit():
+            # 1-2 digit number → treat as floor (e.g. "ML 5", "C 3")
+            return await self._find_hallway_node(building, int(number_part))
+
+        # 3+ digit number → full room ID (e.g. "ML 515")
+        return await self._find_room_anchor_node(normalized)
+
+    async def _find_hallway_node(self, building: str, floor: int) -> NavNode:
+        result = await self.db.execute(
+            select(NavNode).where(
+                NavNode.building_code == building,
+                NavNode.floor == floor,
+                NavNode.node_type == NavNodeType.hallway,
+            )
+        )
+        node = result.scalar_one_or_none()
+        if node is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No navigation node for building '{building}' floor {floor}",
+            )
+        return node
+
+    async def _find_room_anchor_node(self, room_id: str) -> NavNode:
         anchor_res = await self.db.execute(
-            select(RoomNavAnchor).where(RoomNavAnchor.room_id == normalized)
+            select(RoomNavAnchor).where(RoomNavAnchor.room_id == room_id)
         )
         anchor = anchor_res.scalar_one_or_none()
         if anchor is None:
-            raise HTTPException(status_code=404, detail=f"No navigation node found for room '{normalized}'")
+            raise HTTPException(status_code=404, detail=f"No navigation node found for room '{room_id}'")
         node_res = await self.db.execute(select(NavNode).where(NavNode.id == anchor.node_id))
         return node_res.scalar_one()
 
