@@ -1,4 +1,6 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.api.routes.health import router as health_router
@@ -21,6 +23,14 @@ app.add_middleware(
     same_site="lax",
     https_only=False,
 )
+
+@app.exception_handler(StarletteHTTPException)
+async def custom_http_exception_handler(request: Request, exc: StarletteHTTPException):
+    print(f"❌ ERROR {exc.status_code} en {request.url.path}: {exc.detail}")
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail},
+    )
 
 app.include_router(health_router, tags=["health"])
 app.include_router(auth.router)

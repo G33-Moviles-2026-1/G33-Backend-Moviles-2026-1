@@ -230,6 +230,8 @@ async def get_room_recommendations_for_day(
     room_anchor_map = await _load_room_anchor_map(db)
 
     slot_results: list[SlotRoomRecommendationsOut] = []
+    
+    nav_service = NavigationService(db)
 
     for slot_start, slot_end in free_slots:
         previous_cls, next_cls = _find_previous_and_next_classes(
@@ -247,8 +249,8 @@ async def get_room_recommendations_for_day(
             else None
         )
 
-        prev_cost_map = await get_dijkstra_map(db, prev_node) if prev_node else {}
-        next_cost_map = await get_dijkstra_map(db, next_node) if next_node else {}
+        prev_cost_map = await nav_service.get_dijkstra_map(prev_node) if prev_node else {}
+        next_cost_map = await nav_service.get_dijkstra_map(next_node) if next_node else {}
 
         frequent_building = _extract_frequent_building(classes_for_day)
         frequent_floor = _extract_frequent_floor(classes_for_day)
