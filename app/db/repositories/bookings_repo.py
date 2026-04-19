@@ -25,6 +25,13 @@ class BookableTimeRange:
     start_time: time
     end_time: time
 
+@dataclass(slots=True)
+class UserBookedRoomPreference:
+    room_id: str
+    building_code: str
+    capacity: int
+    booking_count: int
+
 
 async def current_term_exists(
     db: AsyncSession,
@@ -277,3 +284,42 @@ async def soft_delete_booking_for_user(
     await db.commit()
     await db.refresh(booking)
     return booking
+
+async def list_user_room_preferences(
+    db: AsyncSession,
+    *,
+    user_email: str,
+) -> list[UserBookedRoomPreference]:
+    result = await db.execute(
+        select(
+            Booking.room_id,
+            Room.building_code,
+            Room.capacity,
+            func.count().label("booking_count"),
+        )
+        .join(Room, Room.id == Booking.room_id)
+        .where(
+            Booking.term_id == settings.current_term_id,
+            Booking.user_email == user_email,
+            Booking.status.in_([BookingStatus.active, BookingStatus.completed]),
+        )
+        .group_by(
+            Booking.room_id,
+            Room.building_code,
+            Room.capacity,
+        )
+        .order_by(
+            func.count().desc(),
+            Booking.room_id.asc(),
+        )
+    )
+
+    return [
+        UserBookedRoomPreference(
+            room_id=row.room_id,
+            building_code=row.building_code,
+            capacity=row.capacity,
+            booking_count=int(row.booking_count),
+        )
+        for row in result.all()
+    ]

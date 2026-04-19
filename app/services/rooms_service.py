@@ -1,3 +1,7 @@
+from app.db.repositories.bookings_repo import (
+    UserBookedRoomPreference,
+    list_user_room_preferences,
+)
 from __future__ import annotations
 
 import re
@@ -38,6 +42,74 @@ WEEKDAY_MAP = {
     5: Weekday.saturday,
     6: Weekday.sunday,
 }
+
+BUILDING_WEIGHT = 0.60
+FLOOR_WEIGHT = 0.25
+CAPACITY_WEIGHT = 0.15
+
+
+def _infer_floor(room_id: str | None) -> int | None:
+    """
+    Same idea already used in recommendation_service:
+    'ML 515' -> 5
+    'SD 203' -> 2
+    """
+    if not room_id:
+        return None
+
+    parts = room_id.strip().split()
+    if len(parts) < 2:
+        return None
+
+    room_number = parts[-1]
+    if not room_number or not room_number[0].isdigit():
+        return None
+
+    return int(room_number[0])
+
+
+def _capacity_similarity(candidate_capacity: int | None, booked_capacity: int | None) -> float:
+    if candidate_capacity is None or booked_capacity is None:
+        return 0.0
+
+    max_capacity = max(candidate_capacity, booked_capacity, 1)
+    diff = abs(candidate_capacity - booked_capacity)
+    return max(0.0, 1.0 - (diff / max_capacity))
+
+
+def _compute_interest_score(
+    item: dict,
+    preferences: list[UserBookedRoomPreference],
+) -> float:
+    if not preferences:
+        return 0.0
+
+    candidate_floor = _infer_floor(item["room_id"])
+
+    weighted_sum = 0.0
+    total_weight = 0
+
+    for pref in preferences:
+        booked_floor = _infer_floor(pref.room_id)
+
+        same_building = item["building_code"] == pref.building_code
+        same_floor = (
+            candidate_floor is not None
+            and booked_floor is not None
+            and candidate_floor == booked_floor
+        )
+        capacity_score = _capacity_similarity(item["capacity"], pref.capacity)
+
+        score = (
+            BUILDING_WEIGHT * (1.0 if same_building else 0.0)
+            + FLOOR_WEIGHT * (1.0 if same_floor else 0.0)
+            + CAPACITY_WEIGHT * capacity_score
+        )
+
+        weighted_sum += score * pref.booking_count
+        total_weight += pref.booking_count
+
+    return weighted_sum / total_weight if total_weight > 0 else 0.0
 
 @dataclass(slots=True)
 class ResolvedSearchParams:
@@ -162,7 +234,12 @@ def resolve_room_search_request(payload: RoomSearchRequest) -> ResolvedSearchPar
 
 # --- SERVICIO PRINCIPAL ---
 
-async def search_rooms(db: AsyncSession, payload: RoomSearchRequest) -> RoomSearchResponse:
+async def search_rooms(
+    db: AsyncSession,
+    payload: RoomSearchRequest,
+    *,
+    user_email: str | None = None,
+) -> RoomSearchResponse:
     resolved = resolve_room_search_request(payload)
     nav_service = NavigationService(db) # Instanciamos el servicio espacial
 
@@ -173,20 +250,33 @@ async def search_rooms(db: AsyncSession, payload: RoomSearchRequest) -> RoomSear
         building_codes=resolved.building_codes, utilities=resolved.utilities,
     )
 
-    grouped: dict[uuid.UUID, dict] = {}
-    for row in rows:
-        if row.room_id not in grouped:
-            grouped[row.room_id] = {
-                "room_id": row.room_id, "building_code": row.building_code,
-                "building_name": row.building_name, "room_number": row.room_number,
-                "capacity": row.capacity, "reliability": row.reliability,
-                "utilities": row.utilities, "distance_seconds": None,
-                "matching_windows": [], "_earliest_start": row.rule_start_time
-            }
-        
-        window = TimeWindowOut(start=row.rule_start_time, end=row.rule_end_time)
-        if window not in grouped[row.room_id]["matching_windows"]:
-            grouped[row.room_id]["matching_windows"].append(window)
+    user_preferences: list[UserBookedRoomPreference] = []
+    if not resolved.near_me and user_email:
+        user_preferences = await list_user_room_preferences(
+            db,
+            user_email=user_email,
+        )
+
+        grouped: dict[str, dict] = {}
+        for row in rows:
+            if row.room_id not in grouped:
+                grouped[row.room_id] = {
+                    "room_id": row.room_id,
+                    "building_code": row.building_code,
+                    "building_name": row.building_name,
+                    "room_number": row.room_number,
+                    "capacity": row.capacity,
+                    "reliability": row.reliability,
+                    "utilities": row.utilities,
+                    "distance_seconds": None,
+                    "matching_windows": [],
+                    "_earliest_start": row.rule_start_time,
+                    "_interest_score": 0.0,
+                }
+
+            window = TimeWindowOut(start=row.rule_start_time, end=row.rule_end_time)
+            if window not in grouped[row.room_id]["matching_windows"]:
+                grouped[row.room_id]["matching_windows"].append(window)
 
     # --- LÓGICA DE CERCANÍA REFACTORIZADA ---
     if resolved.near_me and resolved.user_location:
@@ -209,10 +299,32 @@ async def search_rooms(db: AsyncSession, payload: RoomSearchRequest) -> RoomSear
 
     # --- SORTING Y PAGINACIÓN ---
     items = list(grouped.values())
+
     if resolved.near_me:
-        sort_key = lambda x: (x["distance_seconds"] is None, x["distance_seconds"] or float('inf'), -x["reliability"])
+        sort_key = lambda x: (
+            x["distance_seconds"] is None,
+            x["distance_seconds"] or float("inf"),
+            -x["reliability"],
+        )
     else:
-        sort_key = lambda x: (-x["reliability"], x["room_id"])
+        if user_preferences:
+            for item in items:
+                item["_interest_score"] = _compute_interest_score(
+                    item,
+                    user_preferences,
+                )
+
+            sort_key = lambda x: (
+                -x["_interest_score"],
+                -x["reliability"],
+                x["room_id"],
+            )
+        else:
+            sort_key = lambda x: (
+                -x["reliability"],
+                x["room_id"],
+            )
+
     items.sort(key=sort_key)
 
     paginated = items[resolved.offset : resolved.offset + resolved.limit]
