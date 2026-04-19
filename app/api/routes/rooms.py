@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
 from app.schemas.rooms import RoomSearchRequest, RoomSearchResponse
@@ -26,7 +26,12 @@ async def room_date_availability(
 @router.post("/search", response_model=RoomSearchResponse)
 async def search_rooms_endpoint(
     payload: RoomSearchRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> RoomSearchResponse:
-    return await search_rooms(db, payload)
-
+    user_email = request.session.get("user_name")
+    return await search_rooms(
+        db,
+        payload,
+        user_email=user_email,
+    )
