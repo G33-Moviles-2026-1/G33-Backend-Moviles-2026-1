@@ -198,7 +198,7 @@ async def search_rooms(db: AsyncSession, payload: RoomSearchRequest) -> RoomSear
             resolved.user_location.longitude
         )
         # 2. Obtener mapa de costos (Centralizado)
-        cost_map = await nav_service.get_cost_map(start_node.id)
+        cost_map = await nav_service.get_dijkstra_map(start_node.id)
         
         # 3. Mapear salones a nodos (Optimizado)
         anchors_res = await db.execute(select(RoomNavAnchor))
