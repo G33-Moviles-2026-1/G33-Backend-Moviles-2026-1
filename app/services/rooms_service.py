@@ -1,26 +1,25 @@
-from app.db.repositories.bookings_repo import (
-    UserBookedRoomPreference,
-    list_user_room_preferences,
-)
 from __future__ import annotations
 
 import re
-import uuid
 from dataclasses import dataclass, asdict
 from datetime import date, datetime, time, timedelta
-from math import asin, cos, radians, sin, sqrt
 from zoneinfo import ZoneInfo
 from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.services.navigation_service import NavigationService
+
 from app.core.time_rules import get_operating_hours
 from app.db.models import RoomNavAnchor, UtilityType, Weekday
+from app.db.repositories.bookings_repo import (
+    UserBookedRoomPreference,
+    list_user_room_preferences,
+)
 from app.db.repositories.rooms_repo import (
     fetch_room_base_info,
     fetch_room_daily_slots,
     fetch_room_search_rows,
 )
+from app.services.navigation_service import NavigationService
 from app.schemas.rooms import (
     RoomDateAvailabilityOut,
     RoomDateAvailabilitySlotOut,
@@ -43,9 +42,11 @@ WEEKDAY_MAP = {
     6: Weekday.sunday,
 }
 
-BUILDING_WEIGHT = 0.60
-FLOOR_WEIGHT = 0.25
-CAPACITY_WEIGHT = 0.15
+BUILDING_WEIGHT = 0.35
+FLOOR_WEIGHT = 0.15
+CAPACITY_WEIGHT = 0.10
+UTILITY_WEIGHT = 0.20
+AVAILABILITY_WEIGHT = 0.20
 
 
 def _infer_floor(room_id: str | None) -> int | None:
@@ -77,9 +78,74 @@ def _capacity_similarity(candidate_capacity: int | None, booked_capacity: int | 
     return max(0.0, 1.0 - (diff / max_capacity))
 
 
+def _utilities_similarity(
+    candidate_utilities: list[UtilityType],
+    booked_utilities: list[UtilityType],
+) -> float:
+    candidate_set = set(candidate_utilities)
+    booked_set = set(booked_utilities)
+    if not candidate_set or not booked_set:
+        return 0.0
+
+    union_count = len(candidate_set | booked_set)
+    if union_count == 0:
+        return 0.0
+
+    return len(candidate_set & booked_set) / union_count
+
+
+def _time_to_minutes(value: time) -> int:
+    return value.hour * 60 + value.minute
+
+
+def _window_overlap_ratio(
+    candidate_start: time,
+    candidate_end: time,
+    pref_start: time,
+    pref_end: time,
+) -> float:
+    start = max(_time_to_minutes(candidate_start), _time_to_minutes(pref_start))
+    end = min(_time_to_minutes(candidate_end), _time_to_minutes(pref_end))
+    overlap = max(0, end - start)
+    candidate_minutes = max(1, _time_to_minutes(candidate_end) - _time_to_minutes(candidate_start))
+    return overlap / candidate_minutes
+
+
+def _availability_similarity(
+    candidate_windows: list[TimeWindowOut],
+    pref_windows: list[tuple[Weekday, time, time]],
+    weekday: Weekday,
+) -> float:
+    if not candidate_windows:
+        return 0.0
+
+    same_day_pref = [(start, end) for day, start, end in pref_windows if day == weekday]
+    if not same_day_pref:
+        return 0.0
+
+    per_window_scores: list[float] = []
+    for candidate in candidate_windows:
+        best = 0.0
+        for pref_start, pref_end in same_day_pref:
+            best = max(
+                best,
+                _window_overlap_ratio(
+                    candidate.start,
+                    candidate.end,
+                    pref_start,
+                    pref_end,
+                ),
+            )
+        per_window_scores.append(best)
+
+    return sum(per_window_scores) / len(per_window_scores) if per_window_scores else 0.0
+
+
 def _compute_interest_score(
     item: dict,
     preferences: list[UserBookedRoomPreference],
+    *,
+    weekday: Weekday,
 ) -> float:
     if not preferences:
         return 0.0
@@ -99,11 +165,19 @@ def _compute_interest_score(
             and candidate_floor == booked_floor
         )
         capacity_score = _capacity_similarity(item["capacity"], pref.capacity)
+        utilities_score = _utilities_similarity(item["utilities"], pref.utilities)
+        availability_score = _availability_similarity(
+            item["matching_windows"],
+            pref.availability_windows,
+            weekday,
+        )
 
         score = (
             BUILDING_WEIGHT * (1.0 if same_building else 0.0)
             + FLOOR_WEIGHT * (1.0 if same_floor else 0.0)
             + CAPACITY_WEIGHT * capacity_score
+            + UTILITY_WEIGHT * utilities_score
+            + AVAILABILITY_WEIGHT * availability_score
         )
 
         weighted_sum += score * pref.booking_count
@@ -257,26 +331,26 @@ async def search_rooms(
             user_email=user_email,
         )
 
-        grouped: dict[str, dict] = {}
-        for row in rows:
-            if row.room_id not in grouped:
-                grouped[row.room_id] = {
-                    "room_id": row.room_id,
-                    "building_code": row.building_code,
-                    "building_name": row.building_name,
-                    "room_number": row.room_number,
-                    "capacity": row.capacity,
-                    "reliability": row.reliability,
-                    "utilities": row.utilities,
-                    "distance_seconds": None,
-                    "matching_windows": [],
-                    "_earliest_start": row.rule_start_time,
-                    "_interest_score": 0.0,
-                }
+    grouped: dict[str, dict] = {}
+    for row in rows:
+        if row.room_id not in grouped:
+            grouped[row.room_id] = {
+                "room_id": row.room_id,
+                "building_code": row.building_code,
+                "building_name": row.building_name,
+                "room_number": row.room_number,
+                "capacity": row.capacity,
+                "reliability": row.reliability,
+                "utilities": row.utilities,
+                "distance_seconds": None,
+                "matching_windows": [],
+                "_earliest_start": row.rule_start_time,
+                "_interest_score": 0.0,
+            }
 
-            window = TimeWindowOut(start=row.rule_start_time, end=row.rule_end_time)
-            if window not in grouped[row.room_id]["matching_windows"]:
-                grouped[row.room_id]["matching_windows"].append(window)
+        window = TimeWindowOut(start=row.rule_start_time, end=row.rule_end_time)
+        if window not in grouped[row.room_id]["matching_windows"]:
+            grouped[row.room_id]["matching_windows"].append(window)
 
     # --- LÓGICA DE CERCANÍA REFACTORIZADA ---
     if resolved.near_me and resolved.user_location:
@@ -286,7 +360,7 @@ async def search_rooms(
             resolved.user_location.longitude
         )
         # 2. Obtener mapa de costos (Centralizado)
-        cost_map = await nav_service.get_cost_map(start_node.id)
+        cost_map = await nav_service.get_dijkstra_map(start_node.id)
         
         # 3. Mapear salones a nodos (Optimizado)
         anchors_res = await db.execute(select(RoomNavAnchor))
@@ -312,6 +386,7 @@ async def search_rooms(
                 item["_interest_score"] = _compute_interest_score(
                     item,
                     user_preferences,
+                    weekday=resolved.weekday,
                 )
 
             sort_key = lambda x: (

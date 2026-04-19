@@ -15,6 +15,7 @@ from app.db.models import (
     BookingStatus,
     Room,
     RoomAvailabilityRule,
+    RoomUtility,
     Term,
     Weekday,
 )
@@ -31,6 +32,8 @@ class UserBookedRoomPreference:
     building_code: str
     capacity: int
     booking_count: int
+    utilities: list[UtilityType]
+    availability_windows: list[tuple[Weekday, time, time]]
 
 
 async def current_term_exists(
@@ -314,12 +317,51 @@ async def list_user_room_preferences(
         )
     )
 
+    base_rows = result.all()
+    if not base_rows:
+        return []
+
+    room_ids = [row.room_id for row in base_rows]
+
+    utilities_result = await db.execute(
+        select(RoomUtility.room_id, RoomUtility.utility)
+        .where(RoomUtility.room_id.in_(room_ids))
+        .order_by(RoomUtility.room_id.asc(), RoomUtility.utility.asc())
+    )
+    utilities_map: dict[str, list[UtilityType]] = {}
+    for room_id, utility in utilities_result.all():
+        utilities_map.setdefault(room_id, []).append(utility)
+
+    availability_result = await db.execute(
+        select(
+            RoomAvailabilityRule.room_id,
+            RoomAvailabilityRule.day,
+            RoomAvailabilityRule.start_time,
+            RoomAvailabilityRule.end_time,
+        )
+        .where(
+            RoomAvailabilityRule.term_id == settings.current_term_id,
+            RoomAvailabilityRule.room_id.in_(room_ids),
+        )
+        .order_by(
+            RoomAvailabilityRule.room_id.asc(),
+            RoomAvailabilityRule.day.asc(),
+            RoomAvailabilityRule.start_time.asc(),
+            RoomAvailabilityRule.end_time.asc(),
+        )
+    )
+    availability_map: dict[str, list[tuple[Weekday, time, time]]] = {}
+    for room_id, day, start_time, end_time in availability_result.all():
+        availability_map.setdefault(room_id, []).append((day, start_time, end_time))
+
     return [
         UserBookedRoomPreference(
             room_id=row.room_id,
             building_code=row.building_code,
             capacity=row.capacity,
             booking_count=int(row.booking_count),
+            utilities=utilities_map.get(row.room_id, []),
+            availability_windows=availability_map.get(row.room_id, []),
         )
-        for row in result.all()
+        for row in base_rows
     ]
