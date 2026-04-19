@@ -21,7 +21,7 @@ from app.schemas.schedule import (
     SlotRoomRecommendationsOut,
     DayRoomRecommendationsOut,
 )
-from app.services.rooms_service import get_dijkstra_map
+from app.services.navigation_service import NavigationService
 
 BOGOTA_TZ = ZoneInfo("America/Bogota")
 

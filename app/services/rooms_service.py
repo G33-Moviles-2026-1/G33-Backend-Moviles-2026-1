@@ -1,18 +1,17 @@
 from __future__ import annotations
 
-import heapq
+import re
 import uuid
 from dataclasses import dataclass, asdict
 from datetime import date, datetime, time, timedelta
 from math import asin, cos, radians, sin, sqrt
 from zoneinfo import ZoneInfo
-
 from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-
+from app.services.navigation_service import NavigationService
 from app.core.time_rules import get_operating_hours
-from app.db.models import NavEdge, NavNode, RoomNavAnchor, UtilityType, Weekday
+from app.db.models import RoomNavAnchor, UtilityType, Weekday
 from app.db.repositories.rooms_repo import (
     fetch_room_base_info,
     fetch_room_daily_slots,
@@ -53,49 +52,6 @@ class ResolvedSearchParams:
     limit: int
     offset: int
     weekday: Weekday
-
-# --- UTILIDADES DE NAVEGACIÓN ---
-
-async def get_dijkstra_map(db: AsyncSession, start_node_id: uuid.UUID) -> dict[uuid.UUID, float]:
-    """Calcula el costo mínimo en segundos desde un nodo hacia todos los demás."""
-    result = await db.execute(select(NavEdge))
-    edges = result.scalars().all()
-
-    graph = {}
-    for edge in edges:
-        if edge.from_node_id not in graph:
-            graph[edge.from_node_id] = []
-        graph[edge.from_node_id].append((edge.to_node_id, edge.weight_seconds))
-
-    distances = {start_node_id: 0.0}
-    priority_queue = [(0.0, start_node_id)]
-    visited = set()
-
-    while priority_queue:
-        current_distance, current_node = heapq.heappop(priority_queue)
-        if current_node in visited:
-            continue
-        visited.add(current_node)
-
-        for neighbor, weight in graph.get(current_node, []):
-            distance = current_distance + weight
-            if distance < distances.get(neighbor, float('inf')):
-                distances[neighbor] = distance
-                heapq.heappush(priority_queue, (distance, neighbor))
-    return distances
-
-def _haversine_meters(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-    earth_radius_m = 6371000.0
-    d_lat, d_lon = radians(lat2 - lat1), radians(lon2 - lon1)
-    a = sin(d_lat / 2)**2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(d_lon / 2)**2
-    return earth_radius_m * 2 * asin(sqrt(a))
-
-async def _find_closest_node(db: AsyncSession, lat: float, lon: float) -> uuid.UUID:
-    result = await db.execute(select(NavNode))
-    nodes = result.scalars().all()
-    if not nodes:
-        raise HTTPException(status_code=500, detail="No navigation nodes found in database")
-    return min(nodes, key=lambda n: _haversine_meters(lat, lon, n.lat, n.lon)).id
 
 # --- LÓGICA DE DISPONIBILIDAD INDIVIDUAL ---
 
@@ -147,7 +103,8 @@ def _map_room_base_to_dict(room, target_date, weekday):
 # --- LÓGICA DE NORMALIZACIÓN Y RESOLUCIÓN ---
 
 def _normalize_text_token(value: str) -> str:
-    return " ".join(value.replace("-", " ").upper().split())
+    value = re.sub(r'([A-Za-z])(\d)', r'\1 \2', value.replace("-", " "))
+    return " ".join(value.upper().split())
 
 def _normalize_prefixes(payload: RoomSearchRequest) -> list[str]:
     candidates = ([payload.room_prefix] if payload.room_prefix else []) + payload.room_prefixes
@@ -207,6 +164,7 @@ def resolve_room_search_request(payload: RoomSearchRequest) -> ResolvedSearchPar
 
 async def search_rooms(db: AsyncSession, payload: RoomSearchRequest) -> RoomSearchResponse:
     resolved = resolve_room_search_request(payload)
+    nav_service = NavigationService(db) # Instanciamos el servicio espacial
 
     rows = await fetch_room_search_rows(
         db, target_date=resolved.date, weekday=resolved.weekday,
@@ -229,12 +187,18 @@ async def search_rooms(db: AsyncSession, payload: RoomSearchRequest) -> RoomSear
         window = TimeWindowOut(start=row.rule_start_time, end=row.rule_end_time)
         if window not in grouped[row.room_id]["matching_windows"]:
             grouped[row.room_id]["matching_windows"].append(window)
-        if row.rule_start_time < grouped[row.room_id]["_earliest_start"]:
-            grouped[row.room_id]["_earliest_start"] = row.rule_start_time
 
+    # --- LÓGICA DE CERCANÍA REFACTORIZADA ---
     if resolved.near_me and resolved.user_location:
-        start_node_id = await _find_closest_node(db, resolved.user_location.latitude, resolved.user_location.longitude)
-        cost_map = await get_dijkstra_map(db, start_node_id)
+        # 1. Encontrar nodo origen (Centralizado)
+        start_node = await nav_service.find_nearest_node(
+            resolved.user_location.latitude, 
+            resolved.user_location.longitude
+        )
+        # 2. Obtener mapa de costos (Centralizado)
+        cost_map = await nav_service.get_cost_map(start_node.id)
+        
+        # 3. Mapear salones a nodos (Optimizado)
         anchors_res = await db.execute(select(RoomNavAnchor))
         room_to_node = {a.room_id: a.node_id for a in anchors_res.scalars().all()}
 
@@ -243,15 +207,13 @@ async def search_rooms(db: AsyncSession, payload: RoomSearchRequest) -> RoomSear
             if target_node_id:
                 item["distance_seconds"] = cost_map.get(target_node_id)
 
+    # --- SORTING Y PAGINACIÓN ---
     items = list(grouped.values())
     if resolved.near_me:
-        items.sort(key=lambda x: (
-            x["distance_seconds"] is None, 
-            x["distance_seconds"] if x["distance_seconds"] is not None else float('inf'),
-            -x["reliability"], x["room_id"]
-        ))
+        sort_key = lambda x: (x["distance_seconds"] is None, x["distance_seconds"] or float('inf'), -x["reliability"])
     else:
-        items.sort(key=lambda x: (-x["reliability"], x["room_id"]))
+        sort_key = lambda x: (-x["reliability"], x["room_id"])
+    items.sort(key=sort_key)
 
     paginated = items[resolved.offset : resolved.offset + resolved.limit]
 
