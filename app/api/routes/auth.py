@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 from ...db import models, session
@@ -21,11 +21,12 @@ async def login(user: user_schema.UserAuthenticate, request: Request, db: Sessio
     return {"message": "Success"}
 
 @router.post("/logout/")
-async def logout(request: Request):
+async def logout(request: Request, response: Response):
     user = request.session.get("user_name")
     if not user:
         raise HTTPException(status_code=401, detail="There is no active session")
     request.session.clear()
+    response.delete_cookie(key="session")
     return {"message": "Session closed"}
 
 @router.post("/signup/", response_model=user_schema.UserResponse)
