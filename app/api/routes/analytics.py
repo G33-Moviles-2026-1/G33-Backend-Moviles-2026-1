@@ -1,7 +1,7 @@
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
-from sqlalchemy import select
+from sqlalchemy import Date, cast, select
 from app.db import models
 from app.db.session import get_db
 from app.schemas.analytics import UserScreenTimeDistributionOut
@@ -30,6 +30,25 @@ from app.services.analytics_service import (
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
 
+FILTER_USAGE_EVENT_NAMES = (
+    "home_filters_opened",
+    "home_search_submitted",
+    "room_gap_search_submitted",
+)
+
+
+def _map_event_out(event: models.AnalyticsEvent) -> AnalyticsEventOutRead:
+    return AnalyticsEventOutRead(
+        session_id=event.session_id,
+        user_email=event.user_email,
+        event_name=event.event_name,
+        screen=event.screen,
+        ts=event.ts,
+        event_date=event.ts.date(),
+        duration_ms=event.duration_ms,
+        props_json=event.props_json,
+    )
+
 
 @router.post(
     "/events",
@@ -50,14 +69,58 @@ async def create_analytics_event(
 )
 async def list_analytics_events(
     event_name: str,
+    start_date: date | None = None,
+    end_date: date | None = None,
     db: AsyncSession = Depends(get_db),
 ) -> List[AnalyticsEventOutRead]:
+    if start_date is not None and end_date is not None and start_date > end_date:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="start_date cannot be later than end_date",
+        )
+
     stmt = select(models.AnalyticsEvent).where(models.AnalyticsEvent.event_name == event_name)
+
+    if start_date is not None:
+        stmt = stmt.where(cast(models.AnalyticsEvent.ts, Date) >= start_date)
+    if end_date is not None:
+        stmt = stmt.where(cast(models.AnalyticsEvent.ts, Date) <= end_date)
 
     stmt = stmt.order_by(models.AnalyticsEvent.ts.desc())
     result = await db.execute(stmt)
     events = result.scalars().all()
-    return [AnalyticsEventOutRead.model_validate(event) for event in events]
+    return [_map_event_out(event) for event in events]
+
+
+@router.get(
+    "/filters-used",
+    response_model=List[AnalyticsEventOutRead],
+    summary="List filter-usage analytics events for Power BI",
+)
+async def list_filters_used_events(
+    start_date: date | None = None,
+    end_date: date | None = None,
+    db: AsyncSession = Depends(get_db),
+) -> List[AnalyticsEventOutRead]:
+    if start_date is not None and end_date is not None and start_date > end_date:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="start_date cannot be later than end_date",
+        )
+
+    stmt = select(models.AnalyticsEvent).where(
+        models.AnalyticsEvent.event_name.in_(FILTER_USAGE_EVENT_NAMES)
+    )
+
+    if start_date is not None:
+        stmt = stmt.where(cast(models.AnalyticsEvent.ts, Date) >= start_date)
+    if end_date is not None:
+        stmt = stmt.where(cast(models.AnalyticsEvent.ts, Date) <= end_date)
+
+    stmt = stmt.order_by(models.AnalyticsEvent.ts.desc())
+    result = await db.execute(stmt)
+    events = result.scalars().all()
+    return [_map_event_out(event) for event in events]
 
 
 @router.post(

@@ -41,6 +41,7 @@ class AnalyticsEventOutRead(BaseModel):
     event_name: str
     screen: str | None = None
     ts: datetime
+    event_date: date | None = None
     duration_ms: int | None = None
     props_json: dict
     model_config = ConfigDict(from_attributes=True)
