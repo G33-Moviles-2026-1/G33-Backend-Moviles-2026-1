@@ -98,6 +98,7 @@ class ScheduleImportStepIn(BaseModel):
     method: ScheduleImportMethod
     step: str  # one of SCHEDULE_IMPORT_STEPS[method]
     step_number: int  # 1-based position in the funnel
+    timestamp: datetime | None = None
     props_json: dict = Field(default_factory=dict)
 
 

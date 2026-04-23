@@ -281,7 +281,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"session_id\": \"{{sessionId}}\",\n  \"device_id\": \"postman-device\",\n  \"user_email\": \"{{userEmail}}\",\n  \"method\": \"ics\",\n  \"step\": \"started\",\n  \"step_number\": 1,\n  \"props_json\": {}\n}"
+              "raw": "{\n  \"session_id\": \"{{sessionId}}\",\n  \"device_id\": \"postman-device\",\n  \"user_email\": \"{{userEmail}}\",\n  \"method\": \"ics\",\n  \"step\": \"started\",\n  \"step_number\": 1,\n  \"timestamp\": \"2026-04-22T14:30:00Z\",\n  \"props_json\": {}\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/analytics/schedule-import-step",

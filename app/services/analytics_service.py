@@ -3,7 +3,7 @@ from __future__ import annotations
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import models
 from sqlalchemy import func, select, text, cast, String, Date
-from datetime import date
+from datetime import date, datetime, timezone
 
 
 from app.db.repositories.analytics_repo import (
@@ -65,6 +65,10 @@ async def track_schedule_import_step(
         user_email=payload.user_email,
     )
 
+    step_timestamp = payload.timestamp or datetime.now(timezone.utc)
+    if step_timestamp.tzinfo is None:
+        step_timestamp = step_timestamp.replace(tzinfo=timezone.utc)
+
     await insert_analytics_event(
         db,
         session_id=payload.session_id,
@@ -77,6 +81,7 @@ async def track_schedule_import_step(
             "step": payload.step,
             "step_number": payload.step_number,
             **payload.props_json,
+            "timestamp": step_timestamp.isoformat(),
         },
     )
 
