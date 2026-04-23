@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
@@ -47,6 +47,10 @@ def _current_bogota_datetime() -> datetime:
     return datetime.now(BOGOTA_TZ)
 
 
+def _truncate_to_minute(value: time) -> time:
+    return value.replace(second=0, microsecond=0)
+
+
 async def create_booking(
     db: AsyncSession,
     *,
@@ -59,14 +63,25 @@ async def create_booking(
     if payload.date < today or payload.date > max_allowed:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="date must be between today and the next 7 days",
+            detail="Date must be between today and the next 7 days",
         )
 
     if payload.start_time >= payload.end_time:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="start_time must be earlier than end_time",
+            detail="Start_time must be earlier than end_time",
         )
+
+    now = _current_bogota_datetime()
+
+    if payload.date == now.date():
+        current_time = _truncate_to_minute(now.time())
+
+        if payload.end_time <= current_time:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="You cannot book a room for a time slot that has already passed",
+            )
 
     weekday = WEEKDAY_MAP[payload.date.weekday()]
 
@@ -79,25 +94,25 @@ async def create_booking(
     if clipped_requested_window is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="campus is closed for the selected day/time",
+            detail="Campus is closed for the selected day/time",
         )
 
     if clipped_requested_window != (payload.start_time, payload.end_time):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="selected slot must be fully inside campus operating hours",
+            detail="Selected slot must be fully inside campus operating hours",
         )
 
     if not await current_term_exists(db, term_id=settings.current_term_id):
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="current term is not configured in the database yet",
+            detail="Current term is not configured in the database yet",
         )
 
     if not await room_exists(db, room_id=payload.room_id):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="room was not found",
+            detail="Room was not found",
         )
 
     valid_ranges = await fetch_bookable_time_ranges_for_room(
@@ -115,7 +130,7 @@ async def create_booking(
     if (payload.start_time, payload.end_time) not in valid_range_keys:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="selected slot is not a valid bookable slot for this room and date",
+            detail="Selected slot is not a valid bookable slot for this room and date",
         )
 
     active_bookings_count = await count_active_bookings_for_user(
@@ -125,7 +140,7 @@ async def create_booking(
     if active_bookings_count >= 5:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="you already have 5 active bookings",
+            detail="You already have 5 active bookings",
         )
 
     if await user_has_overlapping_active_booking(
@@ -137,7 +152,7 @@ async def create_booking(
     ):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="you already have another active booking that overlaps this slot",
+            detail="You already have another active booking that overlaps this slot",
         )
 
     if await room_has_overlapping_active_booking(
@@ -149,7 +164,7 @@ async def create_booking(
     ):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="this room slot is already booked",
+            detail="This room slot is already booked",
         )
 
     booking = await insert_booking(
@@ -208,7 +223,7 @@ async def delete_my_booking(
     if existing is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="booking was not found",
+            detail="Booking was not found",
         )
 
     await soft_delete_booking_for_user(
