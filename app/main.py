@@ -12,6 +12,7 @@ from app.api.routes.favorites import router as favorites_router
 from app.api.routes.analytics import router as analytics_router
 from app.api.routes.schedule import router as schedule_router
 from app.api.routes.navigation import router as navigation_router
+from app.api.routes.recommendations import router as recommendations_router
 
 app = FastAPI(title="AndeSpace Backend")
 
@@ -19,7 +20,7 @@ app.add_middleware(
     SessionMiddleware,
     secret_key="una_clave_muy_secreta_y_larga_12345",
     session_cookie="session",
-    max_age=1296000,
+    max_age=60*15,
     same_site="lax",
     https_only=False,
 )
@@ -33,6 +34,7 @@ async def custom_http_exception_handler(request: Request, exc: StarletteHTTPExce
     )
 
 app.include_router(health_router, tags=["health"])
+app.include_router(recommendations_router)
 app.include_router(auth.router)
 app.include_router(ingest_router)
 app.include_router(rooms_router)

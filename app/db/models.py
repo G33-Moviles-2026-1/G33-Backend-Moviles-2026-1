@@ -7,7 +7,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import UUID, JSONB, TIMESTAMP
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
-from datetime import datetime
+from datetime import datetime, time
 
 # ---------- Enums ----------
 
@@ -147,7 +147,7 @@ class Booking(Base):
         Index("ix_booking_user_status", "user_email", "status"),
         Index("ix_booking_room_window", "room_id", "date", "start_time", "end_time"),
         Index("ix_booking_user_created", "user_email", "created_at"),
-    )
+    )   
 
 class Favorite(Base):
     __tablename__ = "favorites"
@@ -199,6 +199,26 @@ class ScheduleClassWeekday(Base):
     __tablename__ = "schedule_class_weekdays"
     schedule_class_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("schedule_classes.id"), primary_key=True)
     day: Mapped[Weekday] = mapped_column(Enum(Weekday), primary_key=True)
+
+class UserRoomInteraction(Base):
+    __tablename__ = "user_room_interactions"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    
+    user_email: Mapped[str] = mapped_column(index=True)
+    room_id: Mapped[str] = mapped_column()
+    weekday: Mapped[str] = mapped_column()  
+    
+    slot_start: Mapped[time] = mapped_column(Time) 
+    
+    learning_score: Mapped[float] = mapped_column(default=0.0)
+
+    __table_args__ = (
+        UniqueConstraint(
+            'user_email', 'room_id', 'weekday', 'slot_start', 
+            name='uix_user_room_time'
+        ),
+    )
 
 # ---------- Analytics ----------
 

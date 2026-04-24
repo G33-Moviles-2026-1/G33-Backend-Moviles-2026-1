@@ -31,7 +31,7 @@ from app.services.schedule_service import (
     upload_ics_schedule,
     upload_manual_schedule,
 )
-from app.services.recommendation_service import get_room_recommendations_for_day
+from app.services.schedule_recommendation_service import get_room_recommendations_for_day
 
 router = APIRouter(prefix="/schedule", tags=["schedule"])
 
