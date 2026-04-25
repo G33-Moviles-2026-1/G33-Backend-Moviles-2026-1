@@ -2,7 +2,7 @@ import random
 from collections import defaultdict
 from datetime import date, time
 from fastapi import Depends
-
+from app.core.time_rules import clip_to_operating_hours
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Weekday
@@ -51,7 +51,11 @@ async def get_auto_search_recommendations(
     target_date: date,
     target_time: time, 
     top_k: int = 3,
+    exclude_ids: list[str] = None
 ) -> list[RoomSearchItemOut]: 
+    
+    if exclude_ids is None:
+        exclude_ids = []
     
     # 1. Resolve Time & Context
     weekday_str = _PYTHON_WEEKDAY_MAP[target_date.weekday()]
@@ -78,6 +82,9 @@ async def get_auto_search_recommendations(
         building_codes=[],
         utilities=[]
     )
+
+    all_available_rows = [row for row in all_available_rows if row.room_id not in exclude_ids]
+
     if not all_available_rows:
         return []
 
@@ -92,8 +99,12 @@ async def get_auto_search_recommendations(
         sample_size = min(len(rows_in_building), MAX_ROOMS_PER_BUILDING_SAMPLE)
         sampled_rows.extend(random.sample(rows_in_building, sample_size))
 
-    # Group the sampled rows
     grouped: dict[str, dict] = {}
+    
+    # Ensure you have your enum mapped (e.g., Weekday.monday)
+    # Assuming weekday_str is a string like "monday"
+    enum_weekday = getattr(Weekday, weekday_str) 
+
     for row in sampled_rows:
         if row.room_id not in grouped:
             grouped[row.room_id] = {
@@ -108,11 +119,21 @@ async def get_auto_search_recommendations(
                 "final_ml_score": 0.0, 
             }
         
-        # Only add the window if it hasn't already passed today!
-        if row.rule_end_time > target_time:
-            window = TimeWindowOut(start=row.rule_start_time, end=row.rule_end_time)
-            if window not in grouped[row.room_id]["matching_windows"]:
-                grouped[row.room_id]["matching_windows"].append(window)
+        # --- THE FIX: SANITIZE THE DB RAW TIMES HERE ---
+        clipped_window = clip_to_operating_hours(
+            enum_weekday, 
+            row.rule_start_time, 
+            row.rule_end_time
+        )
+        
+        if clipped_window:
+            c_start, c_end = clipped_window
+            
+            # Only add the window if the CLIPPED end time hasn't passed today!
+            if c_end > target_time:
+                window = TimeWindowOut(start=c_start, end=c_end)
+                if window not in grouped[row.room_id]["matching_windows"]:
+                    grouped[row.room_id]["matching_windows"].append(window)
 
     # Filter out any rooms that ended up having no future windows today
     candidates = [c for c in grouped.values() if len(c["matching_windows"]) > 0]

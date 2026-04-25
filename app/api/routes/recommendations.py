@@ -6,6 +6,7 @@ from app.db.session import get_db
 from app.services.interactions_service import InteractionAction, record_user_interaction
 from app.services.recommendations_service import get_auto_search_recommendations
 from app.schemas.rooms import RoomSearchItemOut 
+from typing import List
 
 router = APIRouter(prefix="/recommendations", tags=["Recommendations"])
 
@@ -15,6 +16,11 @@ class InteractionPayload(BaseModel):
     weekday: str
     slot_start: time
 
+class AutoSearchPayload(BaseModel):
+    target_date: date
+    target_time: time
+    top_k: int = 3
+    exclude_ids: List[str] = []
 
 def _require_active_user_email(request: Request) -> str:
     user_email = request.session.get("user_name")
@@ -46,12 +52,10 @@ async def submit_room_interaction(
         slot_start=payload.slot_start,
     )
 
-@router.get("/auto-search", response_model=list[RoomSearchItemOut])
+@router.post("/auto-search", response_model=list[RoomSearchItemOut])
 async def auto_search_rooms(
     request: Request,
-    target_date: date,
-    target_time: time,
-    top_k: int = Query(3, ge=1, le=10, description="Number of recommendations to return"),
+    payload: AutoSearchPayload,
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -59,12 +63,16 @@ async def auto_search_rooms(
     and reinforcement learning (Contextual Bandit).
     """
     user_email = _require_active_user_email(request)
+    top_k = payload.top_k
+    target_date = payload.target_date
+    target_time = payload.target_time
     recommendations = await get_auto_search_recommendations(
         db,
         top_k=top_k,
         target_date = target_date,
         target_time = target_time,
-        user_email=user_email
+        user_email=user_email,
+        exclude_ids=payload.exclude_ids
     )
 
     return recommendations
