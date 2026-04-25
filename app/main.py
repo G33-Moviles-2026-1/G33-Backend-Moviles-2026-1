@@ -20,7 +20,7 @@ app.add_middleware(
     SessionMiddleware,
     secret_key="una_clave_muy_secreta_y_larga_12345",
     session_cookie="session",
-    max_age=60*15,
+    max_age=60*60*5,
     same_site="lax",
     https_only=False,
 )
