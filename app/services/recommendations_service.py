@@ -12,6 +12,10 @@ from app.schemas.rooms import (
     WeeklyAvailabilityWindowOut
 )
 
+from zoneinfo import ZoneInfo
+
+BOGOTA_TZ = ZoneInfo("America/Bogota")
+
 from app.db.repositories.interactions_repo import get_user_contextual_scores
 
 
@@ -45,49 +49,50 @@ async def get_auto_search_recommendations(
     db: AsyncSession,
     user_email: str,
     target_date: date,
-    since: time,
-    until: time,
+    target_time: time, 
     top_k: int = 3,
-) -> list[RoomSearchItemOut]: # Assuming we reuse the RoomSearchItemOut schema
-    """
-    The Machine Learning "Auto Search" feature.
-    Uses a Two-Stage Pipeline (Stratified Sampling -> Heavy Scoring) 
-    and a Contextual Multi-Armed Bandit algorithm.
-    """
+) -> list[RoomSearchItemOut]: 
+    
     # 1. Resolve Time & Context
     weekday_str = _PYTHON_WEEKDAY_MAP[target_date.weekday()]
-    db_weekday = _DB_WEEKDAY[weekday_str]
+    if weekday_str == "sunday":
+        return []
 
-    # 2. STAGE 1: Candidate Generation (The Broad Filter)
-    # Fetch all available rooms for this time block (reusing your existing repo function)
+    db_weekday = _DB_WEEKDAY[weekday_str]
+    is_saturday = (weekday_str == "saturday")
+    campus_open = time(6, 0) if is_saturday else time(5, 30)
+    campus_close = time(18, 0) if is_saturday else time(22, 0)
+
+    if target_time >= campus_close:
+        return [] 
+        
+    search_since = max(target_time, campus_open)
+
     all_available_rows = await fetch_room_search_rows(
         db,
         target_date=target_date,
         weekday=db_weekday,
-        since=since,
-        until=until,
+        since=search_since, 
+        until=campus_close,  
         room_prefixes=[],
         building_codes=[],
         utilities=[]
     )
+    if not all_available_rows:
+        return []
 
-    # 3. STAGE 1: Stratified Sampling (In-Memory)
-    # Group by building code to ensure geographic diversity
+    # 4. Stratified Sampling (In-Memory)
     rooms_by_building = defaultdict(list)
     for row in all_available_rows:
         rooms_by_building[row.building_code].append(row)
 
     sampled_rows = []
+    MAX_ROOMS_PER_BUILDING_SAMPLE = 5
     for building_code, rows_in_building in rooms_by_building.items():
-        # Randomly pick up to 5 rooms per building. 
-        # This reduces 1000s of rooms down to a tiny, diverse subset!
         sample_size = min(len(rows_in_building), MAX_ROOMS_PER_BUILDING_SAMPLE)
         sampled_rows.extend(random.sample(rows_in_building, sample_size))
 
-    if not sampled_rows:
-        return [] # No rooms available at all
-
-    # Group the sampled rows exactly like you do in `search_rooms`
+    # Group the sampled rows
     grouped: dict[str, dict] = {}
     for row in sampled_rows:
         if row.room_id not in grouped:
@@ -100,84 +105,57 @@ async def get_auto_search_recommendations(
                 "reliability": row.reliability,
                 "utilities": row.utilities,
                 "matching_windows": [],
-                "final_ml_score": 0.0, # Our new composite score
+                "final_ml_score": 0.0, 
             }
         
-        window = TimeWindowOut(start=row.rule_start_time, end=row.rule_end_time)
-        if window not in grouped[row.room_id]["matching_windows"]:
-            grouped[row.room_id]["matching_windows"].append(window)
+        # Only add the window if it hasn't already passed today!
+        if row.rule_end_time > target_time:
+            window = TimeWindowOut(start=row.rule_start_time, end=row.rule_end_time)
+            if window not in grouped[row.room_id]["matching_windows"]:
+                grouped[row.room_id]["matching_windows"].append(window)
 
-    candidates = list(grouped.values())
+    # Filter out any rooms that ended up having no future windows today
+    candidates = [c for c in grouped.values() if len(c["matching_windows"]) > 0]
 
-    # 4. STAGE 2: Heavy Scoring (Preferences + Reinforcement Learning)
-    # Fetch the user's historical booking preferences
+    # 5. STAGE 2: Heavy Scoring (Preferences + RL)
     user_preferences = await list_user_room_preferences(db, user_email=user_email)
     
-    # Fetch the Contextual RL Scores for this specific day and time
+    # We pass the CURRENT time to the RL engine so it learns what they like *at this time of day*
     rl_scores_map = await get_user_contextual_scores(
-        db,
-        user_email=user_email,
-        weekday=weekday_str,
-        slot_start=since
+        db, user_email=user_email, weekday=weekday_str, slot_start=search_since
     )
 
+    WEIGHT_BASE_PREF = 0.7
+    WEIGHT_RL_SCORE = 0.3
+    EPSILON = 0.2
+
     for item in candidates:
-        # A. Calculate Base Heuristic Score (Using your existing function)
-        base_interest_score = _compute_interest_score(
-            item, 
-            user_preferences, 
-            weekday=db_weekday
-        )
-        
-        # B. Get RL Learning Score (from SKIPs, BOOKs, FAVORITEs)
+        base_interest_score = _compute_interest_score(item, user_preferences, weekday=db_weekday)
         rl_learning_score = rl_scores_map.get(item["room_id"], 0.0)
+        item["final_ml_score"] = (base_interest_score * WEIGHT_BASE_PREF) + (rl_learning_score * WEIGHT_RL_SCORE)
 
-        # C. Composite Score
-        item["final_ml_score"] = (
-            (base_interest_score * WEIGHT_BASE_PREF) + 
-            (rl_learning_score * WEIGHT_RL_SCORE)
-        )
+    candidates.sort(key=lambda x: (-x["final_ml_score"], -x["reliability"], x["room_id"]))
 
-    # Sort strictly by the highest ML score (Exploitation)
-    candidates.sort(key=lambda x: (
-        -x["final_ml_score"],
-        -x["reliability"],
-        x["room_id"]
-    ))
-
-    # 5. EPSILON-GREEDY BANDIT LOGIC
+    # 6. Epsilon-Greedy Logic
     final_selection = []
     if len(candidates) > 0:
         if random.random() > EPSILON:
-            # EXPLOITATION (80%): Take the best scored rooms
             final_selection = candidates[:top_k]
         else:
-            # EXPLORATION (20%): Inject a random room from our diverse stratified sample
             exploration_pick = random.choice(candidates)
             final_selection.append(exploration_pick)
-            
-            # Fill the remaining slots with the highest scorers
             remaining = [c for c in candidates if c["room_id"] != exploration_pick["room_id"]]
             final_selection.extend(remaining[:top_k - 1])
 
-    # 6. Fetch weekly availability just for our final winners (Saves DB time)
-    weekly_map = await fetch_weekly_availability_for_rooms(
-        db, room_ids=[i["room_id"] for i in final_selection]
-    )
-
-    # 7. Map to the final output schema
-    response_items = [
-        RoomSearchItemOut(
+    # 7. Final Mapping
+    response_items = []
+    for item in final_selection:
+        sorted_windows = sorted(item["matching_windows"], key=lambda w: w.start)
+        
+        response_items.append(RoomSearchItemOut(
             **{k: v for k, v in item.items() if k not in ["matching_windows", "final_ml_score"]},
-            distance_seconds=None, # Not using map distance for Auto Search
-            matching_windows=sorted(item["matching_windows"], key=lambda w: w.start),
-            weekly_availability=[
-                WeeklyAvailabilityWindowOut(
-                    day=w.day, start=w.start_time, end=w.end_time,
-                    valid_from=w.valid_from, valid_to=w.valid_to
-                ) for w in weekly_map.get(item["room_id"], [])
-            ]
-        ) for item in final_selection
-    ]
+            distance_seconds=None, 
+            matching_windows=sorted_windows
+        ))
 
     return response_items

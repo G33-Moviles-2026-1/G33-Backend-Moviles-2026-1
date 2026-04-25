@@ -49,9 +49,8 @@ async def submit_room_interaction(
 @router.get("/auto-search", response_model=list[RoomSearchItemOut])
 async def auto_search_rooms(
     request: Request,
-    target_date: date = Query(..., description="The target date for the booking"),
-    since: time = Query(..., description="Start of the search time window"),
-    until: time = Query(..., description="End of the search time window"),
+    target_date: date,
+    target_time: time,
     top_k: int = Query(3, ge=1, le=10, description="Number of recommendations to return"),
     db: AsyncSession = Depends(get_db),
 ):
@@ -62,11 +61,10 @@ async def auto_search_rooms(
     user_email = _require_active_user_email(request)
     recommendations = await get_auto_search_recommendations(
         db,
-        user_email=user_email,
-        target_date=target_date,
-        since=since,
-        until=until,
         top_k=top_k,
+        target_date = target_date,
+        target_time = target_time,
+        user_email=user_email
     )
 
     return recommendations
