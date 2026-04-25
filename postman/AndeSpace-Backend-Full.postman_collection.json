@@ -12,6 +12,9 @@
     { "key": "firstSemester", "value": "202610" },
     { "key": "dateISO", "value": "2026-03-17" },
     { "key": "dateDDMMYYYY", "value": "17-03-2026" },
+    { "key": "startDate", "value": "2026-03-01" },
+    { "key": "endDate", "value": "2026-03-31" },
+    { "key": "eventName", "value": "schedule_import_step" },
     { "key": "roomId", "value": "ML 515" },
     { "key": "bookingId", "value": "00000000-0000-0000-0000-000000000000" },
     { "key": "classId", "value": "00000000-0000-0000-0000-000000000000" },
@@ -255,6 +258,37 @@
           }
         },
         {
+          "name": "GET /analytics/events",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/analytics/events?event_name={{eventName}}&start_date={{startDate}}&end_date={{endDate}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["analytics", "events"],
+              "query": [
+                { "key": "event_name", "value": "{{eventName}}" },
+                { "key": "start_date", "value": "{{startDate}}" },
+                { "key": "end_date", "value": "{{endDate}}" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /analytics/filters-used",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/analytics/filters-used?start_date={{startDate}}&end_date={{endDate}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["analytics", "filters-used"],
+              "query": [
+                { "key": "start_date", "value": "{{startDate}}" },
+                { "key": "end_date", "value": "{{endDate}}" }
+              ]
+            }
+          }
+        },
+        {
           "name": "POST /analytics/room-gap-search",
           "request": {
             "method": "POST",
@@ -298,6 +332,39 @@
               "raw": "{{baseUrl}}/analytics/schedule-import-funnel",
               "host": ["{{baseUrl}}"],
               "path": ["analytics", "schedule-import-funnel"]
+            }
+          }
+        },
+        {
+          "name": "GET /analytics/screen-timestamps",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/analytics/screen-timestamps",
+              "host": ["{{baseUrl}}"],
+              "path": ["analytics", "screen-timestamps"]
+            }
+          }
+        },
+        {
+          "name": "GET /analytics/screen-time-stats",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/analytics/screen-time-stats",
+              "host": ["{{baseUrl}}"],
+              "path": ["analytics", "screen-time-stats"]
+            }
+          }
+        },
+        {
+          "name": "GET /analytics/screen-time-distribution",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/analytics/screen-time-distribution",
+              "host": ["{{baseUrl}}"],
+              "path": ["analytics", "screen-time-distribution"]
             }
           }
         }
