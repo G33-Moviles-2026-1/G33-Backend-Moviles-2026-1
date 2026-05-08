@@ -2,7 +2,7 @@ import enum
 import uuid
 from sqlalchemy import (
     String, Integer, Boolean, Date, Time, Enum, ForeignKey,
-    UniqueConstraint, Index, Text, func
+    UniqueConstraint, Index, Text, func, CheckConstraint
 )
 from sqlalchemy.dialects.postgresql import UUID, JSONB, TIMESTAMP
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -60,6 +60,10 @@ class NavNodeType(str, enum.Enum):
     stairs = "stairs"
     elevator = "elevator"
     room_anchor = "room_anchor"
+
+class FriendshipStatus(enum.IntEnum):
+    pending = 0
+    accepted = 1
 
 # ---------- Core Tables ----------
 
@@ -153,6 +157,22 @@ class Favorite(Base):
     __tablename__ = "favorites"
     user_email: Mapped[str] = mapped_column(ForeignKey("users.email"), primary_key=True)
     room_id: Mapped[str] = mapped_column(ForeignKey("rooms.id"), primary_key=True)
+
+class Friendship(Base):
+    __tablename__ = "friendships"
+    correo_amigo_1: Mapped[str] = mapped_column(ForeignKey("users.email"), primary_key=True)
+    correo_amigo_2: Mapped[str] = mapped_column(ForeignKey("users.email"), primary_key=True)
+    estado: Mapped[FriendshipStatus] = mapped_column(
+        Integer,
+        nullable=False,
+        default=FriendshipStatus.pending,
+        server_default="0",
+    )
+
+    __table_args__ = (
+        CheckConstraint("correo_amigo_1 <> correo_amigo_2", name="ck_friendship_distinct_emails"),
+        Index("ix_friendship_amigo2_estado", "correo_amigo_2", "estado"),
+    )
 
 # ---------- Reports ----------
 
