@@ -65,13 +65,36 @@ class FriendshipStatus(enum.IntEnum):
     pending = 0
     accepted = 1
 
+class UserStatus(str, enum.Enum):
+    incognito = "incognito"
+    busy = "busy"
+    exercising = "exercising"
+    free = "free"
+    hanging_out = "hanging_out"
+    at_home = "at_home"
+    lunching = "lunching"
+
 # ---------- Core Tables ----------
 
 class User(Base):
     __tablename__ = "users"
-    email: Mapped[str] = mapped_column(String, primary_key=True) 
+
+    email: Mapped[str] = mapped_column(String, primary_key=True)
     password_hash: Mapped[str] = mapped_column(String, nullable=False)
     first_semester: Mapped[str] = mapped_column(String, nullable=False)
+
+    username: Mapped[str] = mapped_column(String(25), nullable=False)
+
+    status: Mapped[UserStatus] = mapped_column(
+        Enum(UserStatus, name="user_status"),
+        nullable=False,
+        default=UserStatus.incognito,
+        server_default=UserStatus.incognito.value,
+    )
+
+    __table_args__ = (
+        Index("ix_users_username_lower_unique", func.lower(username), unique=True),
+    )
 
 class Session(Base):
     __tablename__ = "sessions"
