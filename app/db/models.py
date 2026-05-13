@@ -194,6 +194,7 @@ class Friendship(Base):
 
     __table_args__ = (
         CheckConstraint("correo_amigo_1 <> correo_amigo_2", name="ck_friendship_distinct_emails"),
+        Index("ix_friendship_amigo1_estado", "correo_amigo_1", "estado"),
         Index("ix_friendship_amigo2_estado", "correo_amigo_2", "estado"),
     )
 

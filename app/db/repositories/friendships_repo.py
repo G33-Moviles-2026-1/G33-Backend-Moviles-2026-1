@@ -1,4 +1,4 @@
-from sqlalchemy import delete, or_, select
+from sqlalchemy import delete, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Friendship, FriendshipStatus, User
@@ -93,3 +93,71 @@ async def delete_friendship_any_direction(
         )
     )
     await db.commit()
+
+async def get_friend_suggestion_usernames(
+    db: AsyncSession,
+    *,
+    user_email: str,
+) -> list[str]:
+    query = """
+    WITH my_friends AS (
+        SELECT
+            CASE
+                WHEN correo_amigo_1 = :user_email THEN correo_amigo_2
+                ELSE correo_amigo_1
+            END AS friend_email
+        FROM friendships
+        WHERE estado = :accepted_status
+          AND (
+              correo_amigo_1 = :user_email
+              OR correo_amigo_2 = :user_email
+          )
+    ),
+    second_degree_candidates AS (
+        SELECT DISTINCT
+            CASE
+                WHEN f.correo_amigo_1 = mf.friend_email THEN f.correo_amigo_2
+                ELSE f.correo_amigo_1
+            END AS candidate_email
+        FROM my_friends mf
+        JOIN friendships f
+          ON f.estado = :accepted_status
+         AND (
+             f.correo_amigo_1 = mf.friend_email
+             OR f.correo_amigo_2 = mf.friend_email
+         )
+    )
+    SELECT DISTINCT u.username
+    FROM second_degree_candidates sdc
+    JOIN users u
+      ON u.email = sdc.candidate_email
+    WHERE sdc.candidate_email <> :user_email
+      AND u.username IS NOT NULL
+      AND u.username <> ''
+      AND sdc.candidate_email NOT IN (
+          SELECT friend_email
+          FROM my_friends
+      )
+      AND NOT EXISTS (
+          SELECT 1
+          FROM friendships existing
+          WHERE (
+              existing.correo_amigo_1 = :user_email
+              AND existing.correo_amigo_2 = sdc.candidate_email
+          )
+          OR (
+              existing.correo_amigo_2 = :user_email
+              AND existing.correo_amigo_1 = sdc.candidate_email
+          )
+      )
+    ORDER BY u.username;
+    """
+
+    result = await db.execute(
+        text(query),
+        {
+            "user_email": user_email,
+            "accepted_status": FriendshipStatus.accepted.value,
+        },
+    )
+    return list(result.scalars().all())

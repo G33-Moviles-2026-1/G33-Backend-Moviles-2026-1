@@ -11,6 +11,7 @@ from app.services.friendships_service import (
     accept_friendship_request,
     create_friendship_request,
     delete_friendship,
+    get_friend_suggestions,
 )
 
 router = APIRouter(prefix="/friendships", tags=["friendships"])
@@ -53,6 +54,17 @@ async def accept_friendship_request_endpoint(
         payload=payload,
     )
 
+@router.get("/suggestions", response_model=list[str])
+async def get_friend_suggestions_endpoint(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> list[str]:
+    user_email = _require_active_user_email(request)
+
+    return await get_friend_suggestions(
+        db,
+        logged_user_email=user_email,
+    )
 
 @router.delete("/{friend_email}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_friendship_endpoint(

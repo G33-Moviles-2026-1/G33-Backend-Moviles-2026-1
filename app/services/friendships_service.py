@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.repositories.friendships_repo import (
     delete_friendship_any_direction,
     friendship_exists_any_direction,
+    get_friend_suggestion_usernames,
     get_pending_friendship,
     insert_friendship,
     update_friendship_to_accepted,
@@ -96,4 +97,20 @@ async def delete_friendship(
         db,
         email_1=logged_user_email,
         email_2=friend_email,
+    )
+
+async def get_friend_suggestions(
+    db: AsyncSession,
+    *,
+    logged_user_email: str,
+) -> list[str]:
+    if not await user_exists(db, email=logged_user_email):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Your user account was not found.",
+        )
+
+    return await get_friend_suggestion_usernames(
+        db,
+        user_email=logged_user_email,
     )
