@@ -18,14 +18,16 @@ from app.schemas.analytics import (
     ScheduleImportStepIn,
     ScheduleImportStepOut,
     AnalyticsEventOutRead,
-    ScreenTimeResponse
+    ScreenTimeResponse,
+    BookingRoomSpecsAnalyticsResponse,
 )
 from app.services.analytics_service import (
     get_schedule_import_funnel,
     track_room_gap_search_event,
     track_analytics_event,
     track_schedule_import_step,
-    get_screen_time_stats
+    get_screen_time_stats,
+    get_booking_room_specs_analytics,
 )
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
@@ -220,3 +222,18 @@ async def screen_time_distribution(
 ):
     stats = await get_user_screen_time_distribution(db)
     return {"results": stats}
+
+@router.get(
+    "/bookings-room-specs",
+    response_model=BookingRoomSpecsAnalyticsResponse,
+    summary="Analytics dataset for booking-based room recommendation specs",
+    description=(
+        "Returns all historical bookings enriched with the room specifications "
+        "needed to reproduce booking-based recommendation scoring in Power BI. "
+        "Power BI should filter locally by booking_created_date."
+    ),
+)
+async def booking_room_specs_analytics(
+    db: AsyncSession = Depends(get_db),
+) -> BookingRoomSpecsAnalyticsResponse:
+    return await get_booking_room_specs_analytics(db)

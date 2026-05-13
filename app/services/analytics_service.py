@@ -3,8 +3,7 @@ from __future__ import annotations
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import models
 from sqlalchemy import func, select, text, cast, String, Date
-from datetime import date, datetime, timezone
-
+from datetime import date, time, datetime, timezone, timedelta
 
 from app.db.repositories.analytics_repo import (
     ensure_session_exists,
@@ -22,10 +21,44 @@ from app.schemas.analytics import (
     ScheduleImportFunnelOut,
     ScheduleImportStepIn,
     ScheduleImportStepOut,
+    RecommendationWeightsOut,
+    BookingRoomRecommendationWeightsOut,
+    BookingRoomSpecAnalyticsOut,
+    BookingRoomSpecsAnalyticsResponse,
 )
-from sqlalchemy import func, select, text, cast, String
-from datetime import timedelta
+from app.services.rooms_service import (
+    AVAILABILITY_WEIGHT,
+    BUILDING_WEIGHT,
+    CAPACITY_WEIGHT,
+    FLOOR_WEIGHT,
+    UTILITY_WEIGHT,
+)
 
+
+def _enum_value(value) -> str:
+    return value.value if hasattr(value, "value") else str(value)
+
+def _time_to_minutes(value: time) -> int:
+    return value.hour * 60 + value.minute
+
+
+def _duration_minutes(start: time, end: time) -> int:
+    return max(0, _time_to_minutes(end) - _time_to_minutes(start))
+
+
+def _infer_floor(room_id: str | None) -> int | None:
+    if not room_id:
+        return None
+
+    parts = room_id.strip().split()
+    if len(parts) < 2:
+        return None
+
+    room_number = parts[-1]
+    if not room_number or not room_number[0].isdigit():
+        return None
+
+    return int(room_number[0])
 
 async def track_analytics_event(
     db: AsyncSession,
@@ -287,4 +320,137 @@ async def get_schedule_import_funnel(
         highest_dropoff_method=highest_dropoff.method if highest_dropoff and _worst_dropoff(
             highest_dropoff) > 0 else None,
         methods=method_funnels,
+    )
+
+async def get_booking_room_specs_analytics(
+    db: AsyncSession,
+) -> BookingRoomSpecsAnalyticsResponse:
+    """
+    Dataset for the business question:
+    'Given a booking creation date range, which room specifications are most
+    recommended by the booking-based recommendation system?'
+
+    The endpoint returns all historical booking-room rows. Power BI filters
+    locally by booking_created_date.
+    """
+
+    scoring_weights = BookingRoomRecommendationWeightsOut(
+        building_weight=BUILDING_WEIGHT,
+        floor_weight=FLOOR_WEIGHT,
+        capacity_weight=CAPACITY_WEIGHT,
+        utility_weight=UTILITY_WEIGHT,
+        availability_weight=AVAILABILITY_WEIGHT,
+    )
+
+    bookings_result = await db.execute(
+        select(
+            models.Booking.created_at.label("booking_created_at"),
+            models.Booking.term_id.label("term_id"),
+
+            models.Room.id.label("room_id"),
+            models.Room.building_code.label("building_code"),
+            func.coalesce(models.Room.building_name, models.Building.name).label("building_name"),
+            models.Room.room_number.label("room_number"),
+            models.Room.capacity.label("capacity"),
+            models.Room.reliability.label("reliability"),
+        )
+        .join(models.Room, models.Room.id == models.Booking.room_id)
+        .outerjoin(models.Building, models.Building.code == models.Room.building_code)
+        .order_by(
+            models.Booking.created_at.desc(),
+            models.Room.id.asc(),
+        )
+    )
+
+    booking_rows = bookings_result.all()
+
+    if not booking_rows:
+        return BookingRoomSpecsAnalyticsResponse(
+            total=0,
+            scoring_weights=scoring_weights,
+            items=[],
+        )
+
+    room_ids = sorted({row.room_id for row in booking_rows})
+    term_ids = sorted({row.term_id for row in booking_rows})
+
+    utilities_result = await db.execute(
+        select(
+            models.RoomUtility.room_id,
+            models.RoomUtility.utility,
+        )
+        .where(models.RoomUtility.room_id.in_(room_ids))
+        .order_by(
+            models.RoomUtility.room_id.asc(),
+            models.RoomUtility.utility.asc(),
+        )
+    )
+
+    utilities_map: dict[str, list[str]] = {}
+    for room_id, utility in utilities_result.all():
+        utilities_map.setdefault(room_id, []).append(_enum_value(utility))
+
+    availability_result = await db.execute(
+        select(
+            models.RoomAvailabilityRule.term_id,
+            models.RoomAvailabilityRule.room_id,
+            func.count(models.RoomAvailabilityRule.id).label("availability_window_count"),
+            func.sum(
+                (
+                    func.extract("epoch", models.RoomAvailabilityRule.end_time)
+                    - func.extract("epoch", models.RoomAvailabilityRule.start_time)
+                ) / 60
+            ).label("total_weekly_available_minutes"),
+        )
+        .where(
+            models.RoomAvailabilityRule.room_id.in_(room_ids),
+            models.RoomAvailabilityRule.term_id.in_(term_ids),
+        )
+        .group_by(
+            models.RoomAvailabilityRule.term_id,
+            models.RoomAvailabilityRule.room_id,
+        )
+    )
+
+    availability_map: dict[tuple[str, str], tuple[int, int]] = {}
+
+    for term_id, room_id, window_count, total_minutes in availability_result.all():
+        availability_map[(term_id, room_id)] = (
+            int(window_count or 0),
+            int(total_minutes or 0),
+        )
+
+    items: list[BookingRoomSpecAnalyticsOut] = []
+
+    for row in booking_rows:
+        utilities = utilities_map.get(row.room_id, [])
+        availability_window_count, total_weekly_available_minutes = availability_map.get(
+            (row.term_id, row.room_id),
+            (0, 0),
+        )
+
+        items.append(
+            BookingRoomSpecAnalyticsOut(
+                booking_created_date=row.booking_created_at.date(),
+
+                room_id=row.room_id,
+                building_code=row.building_code,
+                building_name=row.building_name,
+                room_number=row.room_number,
+                room_floor=_infer_floor(row.room_id),
+                capacity=row.capacity,
+                reliability=float(row.reliability),
+
+                utilities=utilities,
+                utility_count=len(utilities),
+
+                availability_window_count=availability_window_count,
+                total_weekly_available_minutes=total_weekly_available_minutes,
+            )
+        )
+
+    return BookingRoomSpecsAnalyticsResponse(
+        total=len(items),
+        scoring_weights=scoring_weights,
+        items=items,
     )

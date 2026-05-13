@@ -167,3 +167,42 @@ class ScreenTimeReport(BaseModel):
 
 class ScreenTimeResponse(BaseModel):
     results: list[ScreenTimeReport]
+
+class RecommendationWeightsOut(BaseModel):
+    building_weight: float
+    floor_weight: float
+    capacity_weight: float
+    utility_weight: float
+    availability_weight: float
+
+
+class BookingRoomRecommendationWeightsOut(BaseModel):
+    building_weight: float
+    floor_weight: float
+    capacity_weight: float
+    utility_weight: float
+    availability_weight: float
+
+
+class BookingRoomSpecAnalyticsOut(BaseModel):
+    booking_created_date: date
+
+    room_id: str
+    building_code: str
+    building_name: str | None = None
+    room_number: str
+    room_floor: int | None = None
+    capacity: int
+    reliability: float
+
+    utilities: list[str] = Field(default_factory=list)
+    utility_count: int = 0
+
+    availability_window_count: int = 0
+    total_weekly_available_minutes: int = 0
+
+
+class BookingRoomSpecsAnalyticsResponse(BaseModel):
+    total: int
+    scoring_weights: BookingRoomRecommendationWeightsOut
+    items: list[BookingRoomSpecAnalyticsOut]
