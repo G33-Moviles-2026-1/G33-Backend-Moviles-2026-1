@@ -14,6 +14,7 @@ from app.api.routes.analytics import router as analytics_router
 from app.api.routes.schedule import router as schedule_router
 from app.api.routes.navigation import router as navigation_router
 from app.api.routes.recommendations import router as recommendations_router
+from app.api.routes.notifications import router as notifications_router
 
 app = FastAPI(title="AndeSpace Backend")
 
@@ -45,3 +46,4 @@ app.include_router(friendships_router)
 app.include_router(analytics_router)
 app.include_router(schedule_router)
 app.include_router(navigation_router)
+app.include_router(notifications_router)

@@ -74,6 +74,9 @@ class UserStatus(str, enum.Enum):
     at_home = "at_home"
     lunching = "lunching"
 
+class NotificationType(str, enum.Enum):
+    friend_booking = "friend_booking"
+
 # ---------- Core Tables ----------
 
 class User(Base):
@@ -92,6 +95,10 @@ class User(Base):
         server_default=UserStatus.incognito.value,
     )
 
+    email_changed_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
+
     __table_args__ = (
         Index("ix_users_username_lower_unique", func.lower(username), unique=True),
     )
@@ -100,7 +107,7 @@ class Session(Base):
     __tablename__ = "sessions"
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     device_id: Mapped[str] = mapped_column(String, nullable=False)
-    user_email: Mapped[str | None] = mapped_column(ForeignKey("users.email"), nullable=True)
+    user_email: Mapped[str | None] = mapped_column(ForeignKey("users.email", onupdate="CASCADE"), nullable=True)
 
 class Term(Base):
     __tablename__ = "terms"
@@ -154,7 +161,7 @@ class RoomAvailabilityRule(Base):
 class Booking(Base):
     __tablename__ = "bookings"
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_email: Mapped[str] = mapped_column(ForeignKey("users.email"), nullable=False)
+    user_email: Mapped[str] = mapped_column(ForeignKey("users.email", onupdate="CASCADE"), nullable=False)
     term_id: Mapped[str] = mapped_column(ForeignKey("terms.id"), nullable=False)
     room_id: Mapped[str] = mapped_column(ForeignKey("rooms.id"), nullable=False)
 
@@ -178,13 +185,13 @@ class Booking(Base):
 
 class Favorite(Base):
     __tablename__ = "favorites"
-    user_email: Mapped[str] = mapped_column(ForeignKey("users.email"), primary_key=True)
+    user_email: Mapped[str] = mapped_column(ForeignKey("users.email", onupdate="CASCADE"), primary_key=True)
     room_id: Mapped[str] = mapped_column(ForeignKey("rooms.id"), primary_key=True)
 
 class Friendship(Base):
     __tablename__ = "friendships"
-    correo_amigo_1: Mapped[str] = mapped_column(ForeignKey("users.email"), primary_key=True)
-    correo_amigo_2: Mapped[str] = mapped_column(ForeignKey("users.email"), primary_key=True)
+    correo_amigo_1: Mapped[str] = mapped_column(ForeignKey("users.email", onupdate="CASCADE"), primary_key=True)
+    correo_amigo_2: Mapped[str] = mapped_column(ForeignKey("users.email", onupdate="CASCADE"), primary_key=True)
     estado: Mapped[FriendshipStatus] = mapped_column(
         Integer,
         nullable=False,
@@ -203,7 +210,7 @@ class Friendship(Base):
 class Report(Base):
     __tablename__ = "reports"
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_email: Mapped[str | None] = mapped_column(ForeignKey("users.email"), nullable=True)
+    user_email: Mapped[str | None] = mapped_column(ForeignKey("users.email", onupdate="CASCADE"), nullable=True)
     room_id: Mapped[str] = mapped_column(ForeignKey("rooms.id"), nullable=False)
     reported_at: Mapped[str] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
 
@@ -221,7 +228,7 @@ class Report(Base):
 class Schedule(Base):
     __tablename__ = "schedules"
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_email: Mapped[str] = mapped_column(ForeignKey("users.email"), nullable=False)
+    user_email: Mapped[str] = mapped_column(ForeignKey("users.email", onupdate="CASCADE"), nullable=False)
     source: Mapped[ScheduleSource] = mapped_column(Enum(ScheduleSource), nullable=False)
 
 class ScheduleClass(Base):
@@ -271,7 +278,7 @@ class AnalyticsEvent(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     ts: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
     session_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("sessions.id"), nullable=False)
-    user_email: Mapped[str | None] = mapped_column(ForeignKey("users.email"), nullable=True)
+    user_email: Mapped[str | None] = mapped_column(ForeignKey("users.email", onupdate="CASCADE"), nullable=True)
     event_name: Mapped[str] = mapped_column(String, nullable=False)
     screen: Mapped[str | None] = mapped_column(String, nullable=True)
     duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -290,7 +297,7 @@ class ChatSession(Base):
     __tablename__ = "chat_sessions"
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     session_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("sessions.id"), nullable=False)
-    user_email: Mapped[str | None] = mapped_column(ForeignKey("users.email"), nullable=True)
+    user_email: Mapped[str | None] = mapped_column(ForeignKey("users.email", onupdate="CASCADE"), nullable=True)
 
 class ChatMessage(Base):
     __tablename__ = "chat_messages"
@@ -337,3 +344,23 @@ class RoomNavAnchor(Base):
     __tablename__ = "room_nav_anchor"
     room_id: Mapped[str] = mapped_column(ForeignKey("rooms.id"), primary_key=True)
     node_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("nav_nodes.id"), nullable=False)
+
+# ---------- Notifications ----------
+
+class Notification(Base):
+    __tablename__ = "notifications"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_email: Mapped[str] = mapped_column(ForeignKey("users.email", onupdate="CASCADE"), nullable=False)
+    type: Mapped[NotificationType] = mapped_column(
+        Enum(NotificationType, name="notification_type"), nullable=False
+    )
+    payload: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    is_read: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        Index("ix_notification_user_read", "user_email", "is_read"),
+        Index("ix_notification_user_created", "user_email", "created_at"),
+    )

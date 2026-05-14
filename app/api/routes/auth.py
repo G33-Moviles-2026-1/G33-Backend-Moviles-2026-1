@@ -1,4 +1,6 @@
 import re
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy.orm import Session
@@ -7,6 +9,8 @@ from sqlalchemy.exc import IntegrityError
 from ...db import models, session
 from ...schemas import user as user_schema
 from ...services import utils
+
+BOGOTA_TZ = ZoneInfo("America/Bogota")
 
 
 router = APIRouter(
@@ -230,6 +234,77 @@ async def update_my_status(
     await db.refresh(db_user)
 
     return db_user
+
+@router.put("/me/password")
+async def update_my_password(
+    payload: user_schema.UserPasswordUpdate,
+    request: Request,
+    db: Session = Depends(session.get_db),
+) -> dict:
+    db_user = await _get_current_user(request, db)
+
+    if not utils.compare_hash(payload.current_password, db_user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Current password is incorrect",
+        )
+
+    db_user.password_hash = utils.get_hash(payload.new_password)
+    await db.commit()
+
+    return {"message": "Password updated"}
+
+
+@router.put("/me/email", response_model=user_schema.UserProfileResponse)
+async def update_my_email(
+    payload: user_schema.UserEmailUpdate,
+    request: Request,
+    db: Session = Depends(session.get_db),
+) -> models.User:
+    db_user = await _get_current_user(request, db)
+
+    if not utils.compare_hash(payload.current_password, db_user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Current password is incorrect",
+        )
+
+    now = datetime.now(BOGOTA_TZ)
+    if db_user.email_changed_at is not None:
+        cooldown_ends = db_user.email_changed_at + timedelta(days=30)
+        if now < cooldown_ends:
+            days_left = (cooldown_ends - now).days + 1
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=f"Email can only be changed once every 30 days. Try again in {days_left} day(s).",
+            )
+
+    existing = await db.execute(
+        select(models.User.email).where(models.User.email == payload.new_email).limit(1)
+    )
+    if existing.scalar_one_or_none() is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="That email is already in use",
+        )
+
+    db_user.email = payload.new_email
+    db_user.email_changed_at = now
+
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="That email is already in use",
+        )
+
+    await db.refresh(db_user)
+    request.session["user_name"] = db_user.email
+
+    return db_user
+
 
 @router.get("/email/{user_email}", response_model=user_schema.UserResponse)
 async def get_user(user_email: str, db: Session = Depends(session.get_db)):

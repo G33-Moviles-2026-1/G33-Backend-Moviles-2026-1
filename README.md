@@ -20,6 +20,7 @@ backend/
       deps.py
       routes/
         health.py
+        auth.py
         sessions.py
         rooms.py
         bookings.py
@@ -29,10 +30,14 @@ backend/
         analytics.py
         chatbot.py
         navigation.py
+        recommendations.py
+        notifications.py
         ingest.py
+        friendships.py
 
     schemas/
       common.py
+      user.py
       sessions.py
       rooms.py
       bookings.py
@@ -42,6 +47,7 @@ backend/
       analytics.py
       chatbot.py
       navigation.py
+      notifications.py
       ingest.py
 
     services/
@@ -57,6 +63,7 @@ backend/
       analytics_service.py
       chatbot_service.py
       navigation_service.py
+      notifications_service.py
       ingest_service.py
 
     db/
@@ -78,6 +85,8 @@ backend/
         analytics_repo.py
         chatbot_repo.py
         navigation_repo.py
+        notifications_repo.py
+        friendships_repo.py
       init_db.py
       seed_utilities.py
 
@@ -165,7 +174,91 @@ Golden rule:
 
 ---
 
-## 4) First-time setup: from clone to fully functional DB
+## 4) New features (May 2026)
+
+### In-app notifications system
+
+When a user creates a booking, all their accepted friends (those not in `incognito` status) are notified via an in-app notification stored in the `notifications` database table.
+
+**Endpoints:**
+- `GET /notifications/` — list notifications for the logged-in user (latest 50)
+- `PUT /notifications/read-all` — mark all notifications as read
+- `PUT /notifications/{notification_id}/read` — mark a single notification as read
+
+**Database fields:**
+- `Notification.payload` stores: `friend_username`, `room_id`, `date`, `start_time`, `end_time`
+
+### User profile updates
+
+Users can now change their password, email, and status.
+
+**Endpoints:**
+- `PUT /me/password` — change password (requires current password)
+- `PUT /me/email` — change email (requires current password, validates `@uniandes.edu.co` domain, enforces 30-day cooldown)
+- `PUT /me/status` — change status (e.g., set to `incognito` to disable friend booking notifications)
+
+**Email change policy:**
+- Emails can only be changed once every 30 days
+- The system tracks the last email change in `User.email_changed_at`
+- On email change, the session cookie is automatically updated
+- Returns HTTP 429 (Too Many Requests) if cooldown has not elapsed; includes `days_left` in response
+
+---
+
+## 5) Database migrations
+
+When pulling new code that includes schema changes, you must run the migration scripts.
+
+### For a fresh setup
+
+If you're setting up the database for the first time, migrations are automatically applied when you run:
+
+```bash
+python -m app.db.init_db
+```
+
+This creates all tables with the latest schema, including the `notifications` table and `email_changed_at` column.
+
+### For an existing database
+
+If you already have a database from before these changes, you must manually apply the migration:
+
+```bash
+docker compose exec db psql -U andespace -d andespace < migrations/001_notifications_and_email_cascade.sql
+```
+
+**What this migration does:**
+- Adds `email_changed_at TIMESTAMPTZ` column to the `users` table
+- Creates the `notifications` table with the `notification_type` enum
+- Adds `ON UPDATE CASCADE` constraints to all foreign keys referencing `users.email` (ensures that when a user's email changes, it cascades to all related records)
+
+**Affected tables with cascade constraints:**
+- `sessions`
+- `bookings`
+- `favorites`
+- `friendships` (two foreign keys)
+- `reports`
+- `schedules`
+- `analytics_events`
+- `chat_sessions`
+
+### How to verify the migration was applied
+
+After running the migration, check that the `notifications` table exists:
+
+```bash
+docker compose exec db psql -U andespace -d andespace -c "\dt notifications"
+```
+
+And verify that `email_changed_at` was added to users:
+
+```bash
+docker compose exec db psql -U andespace -d andespace -c "\d users" | grep email_changed_at
+```
+
+---
+
+## 6) First-time setup: from clone to fully functional DB
 
 This is the recommended order for a fresh setup.
 
@@ -242,7 +335,19 @@ Expected response:
 {"ok": true}
 ```
 
-### Step 9 — Run Uniandes ingest
+### Step 9 — Apply migrations (if upgrading an existing database)
+
+If you're setting up from scratch, skip this step. The `init_db` command in Step 6 already created all tables with the latest schema.
+
+If you're upgrading an existing database that was created before May 2026, apply the migration to add the notifications system and email cooldown:
+
+```bash
+docker compose exec db psql -U andespace -d andespace < migrations/001_notifications_and_email_cascade.sql
+```
+
+See **Section 5) Database migrations** for more details.
+
+### Step 10 — Run Uniandes ingest
 
 This fetches course data from the Uniandes API and populates:
 
@@ -272,13 +377,13 @@ You should get a response similar to:
 }
 ```
 
-### Step 10 — Verify ingest summary
+### Step 11 — Verify ingest summary
 
 ```bash
 curl http://localhost:8000/ingest/summary
 ```
 
-### Step 11 — Populate utilities
+### Step 12 — Populate utilities
 
 Utilities are **not** part of the Uniandes source. They are populated separately with a deterministic script.
 
@@ -293,7 +398,7 @@ This fills `room_utilities` consistently for all ingested rooms.
 
 ---
 
-## 5) Recommended execution order summary
+## 7) Recommended execution order summary
 
 For a completely fresh setup, run in this order:
 
@@ -317,7 +422,7 @@ curl http://localhost:8000/ingest/summary
 
 ---
 
-## 6) How to reset everything from scratch
+## 8) How to reset everything from scratch
 
 Use this only when you want to completely wipe the local database and rebuild everything.
 
@@ -346,7 +451,7 @@ python -m app.db.seed_utilities
 
 ---
 
-## 7) How it works across work sessions
+## 9) How it works across work sessions
 
 When you finish working and come back later, the database data is still there as long as you did **not** delete the Docker volume.
 
@@ -381,7 +486,7 @@ No, not unless:
 
 ---
 
-## 8) Useful inspection commands
+## 10) Useful inspection commands
 
 ### Check backend health
 
@@ -441,7 +546,7 @@ order by day, start_time, valid_from;
 
 ---
 
-## 9) Notes
+## 11) Notes
 
 * Models enforce schema shape.
 * Complex booking constraints belong in services, not database constraints.

@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "AndeSpace Backend Full",
-    "description": "Coleccion completa para endpoints activos: health, auth, ingest, rooms, bookings, analytics y schedule (session cookie).",
+    "description": "Coleccion completa para endpoints activos: health, auth, ingest, rooms, bookings, favorites, friendships, notifications, analytics, schedule, navigation, recommendations (session cookie).",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
     "_postman_id": "5f4ad00c-6e06-4f81-a464-3a8d8ab4f901"
   },
@@ -23,7 +23,9 @@
     { "key": "fromRoom", "value": "ML-515" },
     { "key": "toRoom", "value": "SD-101" },
     { "key": "lat", "value": "4.6015" },
-    { "key": "lon", "value": "-74.0663" }
+    { "key": "lon", "value": "-74.0663" },
+    { "key": "friendEmail", "value": "amigo@uniandes.edu.co" },
+    { "key": "notificationId", "value": "00000000-0000-0000-0000-000000000000" }
   ],
   "item": [
     {
@@ -44,6 +46,7 @@
     },
     {
       "name": "Auth",
+      "description": "Autenticacion y gestion de perfil del usuario.",
       "item": [
         {
           "name": "POST /signup/",
@@ -82,6 +85,17 @@
           }
         },
         {
+          "name": "POST /logout/",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseUrl}}/logout/",
+              "host": ["{{baseUrl}}"],
+              "path": ["logout", ""]
+            }
+          }
+        },
+        {
           "name": "GET /me/",
           "request": {
             "method": "GET",
@@ -93,13 +107,110 @@
           }
         },
         {
-          "name": "POST /logout/",
+          "name": "GET /me/profile",
           "request": {
-            "method": "POST",
+            "method": "GET",
             "url": {
-              "raw": "{{baseUrl}}/logout/",
+              "raw": "{{baseUrl}}/me/profile",
               "host": ["{{baseUrl}}"],
-              "path": ["logout", ""]
+              "path": ["me", "profile"]
+            }
+          }
+        },
+        {
+          "name": "GET /me/username",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/me/username",
+              "host": ["{{baseUrl}}"],
+              "path": ["me", "username"]
+            }
+          }
+        },
+        {
+          "name": "PUT /me/username",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"nuevo_username\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/me/username",
+              "host": ["{{baseUrl}}"],
+              "path": ["me", "username"]
+            }
+          }
+        },
+        {
+          "name": "GET /me/status",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/me/status",
+              "host": ["{{baseUrl}}"],
+              "path": ["me", "status"]
+            }
+          }
+        },
+        {
+          "name": "PUT /me/status",
+          "description": "Estados: incognito, busy, exercising, free, hanging_out, at_home, lunching. incognito = no recibe notificaciones de amigos.",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"free\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/me/status",
+              "host": ["{{baseUrl}}"],
+              "path": ["me", "status"]
+            }
+          }
+        },
+        {
+          "name": "PUT /me/password",
+          "description": "Cambia la contrasena del usuario autenticado.",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"current_password\": \"{{password}}\",\n  \"new_password\": \"NuevaPassword456\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/me/password",
+              "host": ["{{baseUrl}}"],
+              "path": ["me", "password"]
+            }
+          }
+        },
+        {
+          "name": "PUT /me/email",
+          "description": "Cambia el correo del usuario. Requiere contrasena actual. Solo se puede cambiar una vez cada 30 dias. Retorna 429 si no cumple el cooldown.",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"new_email\": \"nuevo_correo@uniandes.edu.co\",\n  \"current_password\": \"{{password}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/me/email",
+              "host": ["{{baseUrl}}"],
+              "path": ["me", "email"]
             }
           }
         },
@@ -186,6 +297,7 @@
       "item": [
         {
           "name": "POST /bookings/",
+          "description": "Al crear una reserva, se notifica a los amigos del usuario que no esten en estado incognito.",
           "request": {
             "method": "POST",
             "header": [
@@ -235,6 +347,174 @@
               "raw": "{{baseUrl}}/bookings/{{bookingId}}",
               "host": ["{{baseUrl}}"],
               "path": ["bookings", "{{bookingId}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Favorites",
+      "description": "Requiere sesion activa.",
+      "item": [
+        {
+          "name": "POST /favorites/",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"room_id\": \"{{roomId}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/favorites/",
+              "host": ["{{baseUrl}}"],
+              "path": ["favorites", ""]
+            }
+          }
+        },
+        {
+          "name": "GET /favorites/mine",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/favorites/mine",
+              "host": ["{{baseUrl}}"],
+              "path": ["favorites", "mine"]
+            }
+          }
+        },
+        {
+          "name": "DELETE /favorites/{room_id}",
+          "request": {
+            "method": "DELETE",
+            "url": {
+              "raw": "{{baseUrl}}/favorites/{{roomId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["favorites", "{{roomId}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Friendships",
+      "description": "Requiere sesion activa.",
+      "item": [
+        {
+          "name": "POST /friendships/",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"correo_amigo_2\": \"{{friendEmail}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/friendships/",
+              "host": ["{{baseUrl}}"],
+              "path": ["friendships", ""]
+            }
+          }
+        },
+        {
+          "name": "PUT /friendships/accept",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"correo_amigo_1\": \"{{friendEmail}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/friendships/accept",
+              "host": ["{{baseUrl}}"],
+              "path": ["friendships", "accept"]
+            }
+          }
+        },
+        {
+          "name": "DELETE /friendships/{friend_email}",
+          "request": {
+            "method": "DELETE",
+            "url": {
+              "raw": "{{baseUrl}}/friendships/{{friendEmail}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["friendships", "{{friendEmail}}"]
+            }
+          }
+        },
+        {
+          "name": "GET /friendships/suggestions",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/friendships/suggestions",
+              "host": ["{{baseUrl}}"],
+              "path": ["friendships", "suggestions"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Notifications",
+      "description": "Notificaciones in-app. Requiere sesion activa. Se generan automaticamente cuando un amigo crea una reserva (solo si el usuario no esta en estado incognito).",
+      "item": [
+        {
+          "name": "GET /notifications/",
+          "description": "Lista las ultimas 50 notificaciones del usuario con conteo de no leidas.",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/notifications/",
+              "host": ["{{baseUrl}}"],
+              "path": ["notifications", ""]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const data = pm.response.json();",
+                  "  if (data.items && data.items.length > 0) {",
+                  "    pm.collectionVariables.set('notificationId', data.items[0].id);",
+                  "  }",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "PUT /notifications/read-all",
+          "description": "Marca todas las notificaciones del usuario como leidas.",
+          "request": {
+            "method": "PUT",
+            "url": {
+              "raw": "{{baseUrl}}/notifications/read-all",
+              "host": ["{{baseUrl}}"],
+              "path": ["notifications", "read-all"]
+            }
+          }
+        },
+        {
+          "name": "PUT /notifications/{notification_id}/read",
+          "description": "Marca una notificacion especifica como leida.",
+          "request": {
+            "method": "PUT",
+            "url": {
+              "raw": "{{baseUrl}}/notifications/{{notificationId}}/read",
+              "host": ["{{baseUrl}}"],
+              "path": ["notifications", "{{notificationId}}", "read"]
             }
           }
         }
@@ -371,38 +651,18 @@
               "path": ["analytics", "screen-time-distribution"]
             }
           }
-        }
-      ]
-    },
-    {
-      "name": "Navigation",
-      "item": [
-        {
-          "name": "GET /navigation/path",
-          "request": {
-            "method": "GET",
-            "url": {
-              "raw": "{{baseUrl}}/navigation/path?from_room={{fromRoom}}&to_room={{toRoom}}",
-              "host": ["{{baseUrl}}"],
-              "path": ["navigation", "path"],
-              "query": [
-                { "key": "from_room", "value": "{{fromRoom}}" },
-                { "key": "to_room", "value": "{{toRoom}}" }
-              ]
-            }
-          }
         },
         {
-          "name": "GET /navigation/nearest-node",
+          "name": "GET /analytics/bookings-room-specs",
           "request": {
             "method": "GET",
             "url": {
-              "raw": "{{baseUrl}}/navigation/nearest-node?lat={{lat}}&lon={{lon}}",
+              "raw": "{{baseUrl}}/analytics/bookings-room-specs?start_date={{startDate}}&end_date={{endDate}}",
               "host": ["{{baseUrl}}"],
-              "path": ["navigation", "nearest-node"],
+              "path": ["analytics", "bookings-room-specs"],
               "query": [
-                { "key": "lat", "value": "{{lat}}" },
-                { "key": "lon", "value": "{{lon}}" }
+                { "key": "start_date", "value": "{{startDate}}" },
+                { "key": "end_date", "value": "{{endDate}}" }
               ]
             }
           }
@@ -554,6 +814,85 @@
               "raw": "{{baseUrl}}/schedule",
               "host": ["{{baseUrl}}"],
               "path": ["schedule"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Navigation",
+      "item": [
+        {
+          "name": "GET /navigation/path",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/navigation/path?from_room={{fromRoom}}&to_room={{toRoom}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["navigation", "path"],
+              "query": [
+                { "key": "from_room", "value": "{{fromRoom}}" },
+                { "key": "to_room", "value": "{{toRoom}}" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /navigation/nearest-node",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/navigation/nearest-node?lat={{lat}}&lon={{lon}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["navigation", "nearest-node"],
+              "query": [
+                { "key": "lat", "value": "{{lat}}" },
+                { "key": "lon", "value": "{{lon}}" }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Recommendations",
+      "description": "Sistema de recomendaciones ML (contextual bandit). Requiere sesion activa.",
+      "item": [
+        {
+          "name": "POST /recommendations/interact",
+          "description": "Registra una interaccion del usuario con una sala (SKIP, BOOK, FAVORITE) para el algoritmo de aprendizaje.",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"room_id\": \"{{roomId}}\",\n  \"action\": \"BOOK\",\n  \"weekday\": \"monday\",\n  \"slot_start\": \"10:00:00\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/recommendations/interact",
+              "host": ["{{baseUrl}}"],
+              "path": ["recommendations", "interact"]
+            }
+          }
+        },
+        {
+          "name": "POST /recommendations/auto-search",
+          "description": "Sugerencias de salas personalizadas usando el algoritmo ML (epsilon-greedy).",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"date\": \"{{dateISO}}\",\n  \"since\": \"09:00:00\",\n  \"until\": \"12:00:00\",\n  \"building_codes\": [],\n  \"utilities\": []\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/recommendations/auto-search",
+              "host": ["{{baseUrl}}"],
+              "path": ["recommendations", "auto-search"]
             }
           }
         }

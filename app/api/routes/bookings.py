@@ -1,8 +1,10 @@
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db.models import User
 from app.db.session import get_db
 from app.schemas.bookings import BookingOut, CreateBookingRequest, MyBookingsResponse
 from app.services.bookings_service import create_booking, delete_my_booking, get_my_bookings
@@ -27,9 +29,14 @@ async def create_booking_endpoint(
     db: AsyncSession = Depends(get_db),
 ) -> BookingOut:
     user_email = _require_active_user_email(request)
+
+    result = await db.execute(select(User.username).where(User.email == user_email).limit(1))
+    user_username = result.scalar_one_or_none() or user_email
+
     return await create_booking(
         db,
         user_email=user_email,
+        user_username=user_username,
         payload=payload,
     )
 

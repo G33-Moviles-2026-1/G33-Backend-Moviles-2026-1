@@ -29,6 +29,7 @@ from app.schemas.bookings import (
     MyBookingItemOut,
     MyBookingsResponse,
 )
+from app.services.notifications_service import notify_friends_of_booking
 
 BOGOTA_TZ = ZoneInfo("America/Bogota")
 
@@ -55,6 +56,7 @@ async def create_booking(
     db: AsyncSession,
     *,
     user_email: str,
+    user_username: str,
     payload: CreateBookingRequest,
 ) -> BookingOut:
     today = _current_bogota_datetime().date()
@@ -178,7 +180,19 @@ async def create_booking(
         status=BookingStatus.active,
     )
 
-    return BookingOut.model_validate(booking)
+    booking_out = BookingOut.model_validate(booking)
+
+    try:
+        await notify_friends_of_booking(
+            db,
+            booking_user_email=user_email,
+            booking_user_username=user_username,
+            booking=booking_out,
+        )
+    except Exception as e:
+        print(f"⚠️ notify_friends_of_booking failed for booking {booking_out.id}: {e}")
+
+    return booking_out
 
 
 async def get_my_bookings(

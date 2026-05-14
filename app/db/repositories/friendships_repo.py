@@ -1,7 +1,7 @@
 from sqlalchemy import delete, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Friendship, FriendshipStatus, User
+from app.db.models import Friendship, FriendshipStatus, User, UserStatus
 
 
 async def user_exists(
@@ -93,6 +93,36 @@ async def delete_friendship_any_direction(
         )
     )
     await db.commit()
+
+async def get_accepted_friends_emails_not_incognito(
+    db: AsyncSession,
+    *,
+    user_email: str,
+) -> list[str]:
+    friend_email_col = (
+        select(
+            Friendship.correo_amigo_2.label("friend_email")
+        ).where(
+            Friendship.correo_amigo_1 == user_email,
+            Friendship.estado == FriendshipStatus.accepted,
+        )
+        .union_all(
+            select(
+                Friendship.correo_amigo_1.label("friend_email")
+            ).where(
+                Friendship.correo_amigo_2 == user_email,
+                Friendship.estado == FriendshipStatus.accepted,
+            )
+        )
+    ).subquery()
+
+    result = await db.execute(
+        select(User.email)
+        .join(friend_email_col, User.email == friend_email_col.c.friend_email)
+        .where(User.status != UserStatus.incognito)
+    )
+    return list(result.scalars().all())
+
 
 async def get_friend_suggestion_usernames(
     db: AsyncSession,

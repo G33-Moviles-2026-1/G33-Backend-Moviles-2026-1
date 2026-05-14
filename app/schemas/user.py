@@ -117,3 +117,27 @@ class UserStatusUpdate(BaseModel):
 
 class UserAuthenticate(UserBase):
     password: str
+
+
+class UserPasswordUpdate(BaseModel):
+    current_password: str
+    new_password: str
+
+
+class UserEmailUpdate(BaseModel):
+    new_email: str
+    current_password: str
+
+    @field_validator("new_email")
+    @classmethod
+    def validate_new_email_domain(cls, value: str) -> str:
+        allowed_domain = "@uniandes.edu.co"
+        cleaned = value.strip().lower()
+
+        if not cleaned.endswith(allowed_domain):
+            raise HTTPException(
+                status_code=403,
+                detail=f"The email must match with {allowed_domain}",
+            )
+
+        return cleaned
