@@ -16,6 +16,30 @@ class ScheduleUploadOut(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+class GoogleCalendarAuthUrlOut(BaseModel):
+    auth_url: str
+    state: str
+
+
+class GoogleCalendarConnectionStatusOut(BaseModel):
+    connected: bool
+
+
+class GoogleCalendarOut(BaseModel):
+    id: str
+    summary: str
+    primary: bool = False
+
+
+class GoogleCalendarListOut(BaseModel):
+    calendars: list[GoogleCalendarOut]
+
+
+class GoogleCalendarImportIn(BaseModel):
+    state: str
+    calendar_ids: list[str]
+
+
 # ── Weekly calendar ─────────────────────────────────────────────────────────
 
 class ScheduleClassOccurrenceOut(BaseModel):
