@@ -123,7 +123,7 @@ async def google_calendar_auth_url(
     request: Request,
 ) -> GoogleCalendarAuthUrlOut:
     user_email = _require_active_user_email(request)
-    redirect_uri = settings.google_redirect_uri or str(
+    redirect_uri = settings.resolved_google_redirect_uri or str(
         request.url_for("google_calendar_callback")
     )
 

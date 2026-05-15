@@ -7,7 +7,20 @@ from sqlalchemy import Integer, cast, func, select, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import AnalyticsEvent, Session
+from app.db.models import AnalyticsEvent, Session, User
+
+
+async def _existing_user_email(
+    db: AsyncSession,
+    user_email: str | None,
+) -> str | None:
+    if not user_email:
+        return None
+
+    result = await db.execute(
+        select(User.email).where(User.email == user_email).limit(1)
+    )
+    return result.scalar_one_or_none()
 
 
 async def ensure_session_exists(
@@ -17,6 +30,8 @@ async def ensure_session_exists(
     device_id: str | None,
     user_email: str | None,
 ) -> None:
+    user_email = await _existing_user_email(db, user_email)
+
     await db.execute(
         insert(Session)
         .values(
@@ -38,6 +53,8 @@ async def insert_analytics_event(
     duration_ms: int | None,
     props_json: dict,
 ) -> None:
+    user_email = await _existing_user_email(db, user_email)
+
     await db.execute(
         insert(AnalyticsEvent).values(
             ts=datetime.now(timezone.utc),

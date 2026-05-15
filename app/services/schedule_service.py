@@ -407,13 +407,17 @@ def _validate_class_time_ranges(classes: list[ClassInputData]) -> None:
 # ── Public service functions ─────────────────────────────────────────────────
 
 def _require_google_oauth_settings() -> tuple[str, str]:
-    if not settings.google_client_id or not settings.google_client_secret:
+    client_id = settings.resolved_google_client_id
+    client_secret = settings.resolved_google_client_secret
+
+    if not client_id or not client_secret:
+        missing = ", ".join(settings.missing_google_oauth_settings)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Google Calendar is not configured on the server.",
+            detail=f"Google Calendar is not configured on the server. Missing: {missing}.",
         )
 
-    return settings.google_client_id, settings.google_client_secret
+    return client_id, client_secret
 
 
 def create_google_calendar_auth_url(
