@@ -4,12 +4,18 @@ from datetime import date, datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
+from fastapi.responses import HTMLResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.db.session import get_db
 from app.schemas.schedule import (
     FreeSlotsForDayOut,
     FreeRoomsForDayOut,
+    GoogleCalendarAuthUrlOut,
+    GoogleCalendarConnectionStatusOut,
+    GoogleCalendarImportIn,
+    GoogleCalendarListOut,
     ManualScheduleIn,
     ManualScheduleOut,
     ScheduleClassesOut,
@@ -21,13 +27,18 @@ from app.schemas.schedule import (
     DayRoomRecommendationsOut,
 )
 from app.services.schedule_service import (
+    complete_google_calendar_oauth,
+    create_google_calendar_auth_url,
     delete_schedule_class,
     delete_schedule_occurrence,
     delete_user_schedule,
     get_free_slots_for_day,
     get_free_rooms_for_day,
+    get_google_calendar_connection_status,
     get_weekly_schedule,
+    list_google_calendars,
     list_schedule_classes,
+    upload_google_calendar_schedule,
     upload_ics_schedule,
     upload_manual_schedule,
 )
@@ -102,6 +113,105 @@ async def upload_ics(
 
 
 # ── Manual entry ─────────────────────────────────────────────────────────────
+
+@router.get(
+    "/google/auth-url",
+    response_model=GoogleCalendarAuthUrlOut,
+    summary="Create a Google Calendar OAuth URL",
+)
+async def google_calendar_auth_url(
+    request: Request,
+) -> GoogleCalendarAuthUrlOut:
+    user_email = _require_active_user_email(request)
+    redirect_uri = settings.google_redirect_uri or str(
+        request.url_for("google_calendar_callback")
+    )
+
+    return create_google_calendar_auth_url(
+        user_email=user_email,
+        redirect_uri=redirect_uri,
+    )
+
+
+@router.get(
+    "/google/callback",
+    response_class=HTMLResponse,
+    summary="Google Calendar OAuth callback",
+)
+async def google_calendar_callback(
+    state: str,
+    code: str | None = None,
+    error: str | None = None,
+) -> HTMLResponse:
+    if error:
+        return HTMLResponse(
+            "<h1>Google Calendar connection failed</h1>"
+            "<p>You can close this tab and return to AndeSpace.</p>",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if not code:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Missing Google authorization code.",
+        )
+
+    await complete_google_calendar_oauth(state=state, code=code)
+
+    return HTMLResponse(
+        "<h1>Google Calendar connected</h1>"
+        "<p>You can close this tab and return to AndeSpace.</p>"
+    )
+
+
+@router.get(
+    "/google/status",
+    response_model=GoogleCalendarConnectionStatusOut,
+    summary="Check Google Calendar OAuth status",
+)
+async def google_calendar_status(
+    request: Request,
+    state: str,
+) -> GoogleCalendarConnectionStatusOut:
+    user_email = _require_active_user_email(request)
+    return get_google_calendar_connection_status(
+        user_email=user_email,
+        state=state,
+    )
+
+
+@router.get(
+    "/google/calendars",
+    response_model=GoogleCalendarListOut,
+    summary="List Google calendars after OAuth",
+)
+async def google_calendars(
+    request: Request,
+    state: str,
+) -> GoogleCalendarListOut:
+    user_email = _require_active_user_email(request)
+    return await list_google_calendars(user_email=user_email, state=state)
+
+
+@router.post(
+    "/upload/google",
+    response_model=ScheduleUploadOut,
+    status_code=status.HTTP_201_CREATED,
+    summary="Import selected Google calendars as a schedule",
+)
+async def upload_google(
+    payload: GoogleCalendarImportIn,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> ScheduleUploadOut:
+    user_email = _require_active_user_email(request)
+    return await upload_google_calendar_schedule(
+        db,
+        user_email=user_email,
+        state=payload.state,
+        calendar_ids=payload.calendar_ids,
+    )
+
 
 @router.post(
     "/upload/manual",

@@ -2,11 +2,15 @@ from __future__ import annotations
 
 import html
 import re
+import secrets
 import uuid
 from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
+from typing import Any
+from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
 
+import httpx
 from fastapi import HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -33,6 +37,10 @@ from app.schemas.schedule import (
     FreeSlotsForDayOut,
     FreeRoomsForDayOut,
     FreeSlotOut,
+    GoogleCalendarAuthUrlOut,
+    GoogleCalendarConnectionStatusOut,
+    GoogleCalendarListOut,
+    GoogleCalendarOut,
     ManualClassIn,
     ScheduleDeleteOut,
     ScheduleDeleteOccurrenceOut,
@@ -58,6 +66,13 @@ CLASS_END_MAX = time(22, 0)
 
 # Minimum free slot to surface (minutes)
 MIN_FREE_SLOT_MINUTES = 30
+
+GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
+GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
+GOOGLE_CALENDAR_API = "https://www.googleapis.com/calendar/v3"
+GOOGLE_CALENDAR_SCOPES = "https://www.googleapis.com/auth/calendar.readonly"
+GOOGLE_IMPORT_LOOKBACK_DAYS = 30
+GOOGLE_IMPORT_LOOKAHEAD_DAYS = 240
 
 _BYDAY_MAP: dict[str, str] = {
     "MO": "monday",
@@ -94,6 +109,17 @@ class _ParsedClass:
     start_time: time
     end_time: time
     weekdays: list[str]
+
+
+@dataclass
+class _GoogleCalendarFlow:
+    user_email: str
+    redirect_uri: str
+    access_token: str | None = None
+    expires_at: datetime | None = None
+
+
+_GOOGLE_CALENDAR_FLOWS: dict[str, _GoogleCalendarFlow] = {}
 
 
 def _unfold(text: str) -> str:
@@ -254,6 +280,68 @@ def _parsed_to_input(p: _ParsedClass) -> ClassInputData:
         weekdays=p.weekdays,
     )
 
+
+def _classes_overlap(a: ClassInputData, b: ClassInputData) -> bool:
+    if a.end_date < b.start_date or b.end_date < a.start_date:
+        return False
+
+    if not set(a.weekdays).intersection(b.weekdays):
+        return False
+
+    return a.start_time < b.end_time and b.start_time < a.end_time
+
+
+def _normalize_import_classes(
+    classes: list[ClassInputData],
+) -> tuple[list[ClassInputData], list[str]]:
+    normalized: list[ClassInputData] = []
+    warnings: list[str] = []
+
+    for c in classes:
+        title = c.title or "Untitled event"
+        weekdays = [weekday for weekday in c.weekdays if weekday != "sunday"]
+
+        if len(weekdays) != len(c.weekdays):
+            warnings.append(f"Skipped Sunday occurrence(s) for '{title}'.")
+
+        if not weekdays:
+            warnings.append(f"Skipped '{title}' because it only occurs on Sunday.")
+            continue
+
+        if c.start_date > c.end_date:
+            warnings.append(f"Skipped '{title}' because its date range is invalid.")
+            continue
+
+        start_time = max(c.start_time, CLASS_START_MIN)
+        end_time = min(c.end_time, CLASS_END_MAX)
+
+        if end_time <= start_time:
+            warnings.append(
+                f"Skipped '{title}' because it is outside campus hours."
+            )
+            continue
+
+        candidate = ClassInputData(
+            title=c.title,
+            location_text=c.location_text,
+            room_id=c.room_id,
+            start_date=c.start_date,
+            end_date=c.end_date,
+            start_time=start_time,
+            end_time=end_time,
+            weekdays=weekdays,
+        )
+
+        if any(_classes_overlap(candidate, accepted) for accepted in normalized):
+            warnings.append(
+                f"Skipped '{title}' because it overlaps with an earlier class."
+            )
+            continue
+
+        normalized.append(candidate)
+
+    return normalized, warnings
+
 def _normalize_room_id(value: str | None) -> str | None:
     if value is None:
         return None
@@ -318,6 +406,260 @@ def _validate_class_time_ranges(classes: list[ClassInputData]) -> None:
 
 # ── Public service functions ─────────────────────────────────────────────────
 
+def _require_google_oauth_settings() -> tuple[str, str]:
+    if not settings.google_client_id or not settings.google_client_secret:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Google Calendar is not configured on the server.",
+        )
+
+    return settings.google_client_id, settings.google_client_secret
+
+
+def create_google_calendar_auth_url(
+    *,
+    user_email: str,
+    redirect_uri: str,
+) -> GoogleCalendarAuthUrlOut:
+    client_id, _ = _require_google_oauth_settings()
+    state = secrets.token_urlsafe(32)
+    _GOOGLE_CALENDAR_FLOWS[state] = _GoogleCalendarFlow(
+        user_email=user_email,
+        redirect_uri=redirect_uri,
+    )
+
+    query = urlencode(
+        {
+            "client_id": client_id,
+            "redirect_uri": redirect_uri,
+            "response_type": "code",
+            "scope": GOOGLE_CALENDAR_SCOPES,
+            "access_type": "offline",
+            "prompt": "consent",
+            "state": state,
+        }
+    )
+
+    return GoogleCalendarAuthUrlOut(
+        auth_url=f"{GOOGLE_AUTH_URL}?{query}",
+        state=state,
+    )
+
+
+async def complete_google_calendar_oauth(
+    *,
+    state: str,
+    code: str,
+) -> None:
+    client_id, client_secret = _require_google_oauth_settings()
+    flow = _GOOGLE_CALENDAR_FLOWS.get(state)
+
+    if flow is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Invalid or expired Google Calendar connection state.",
+        )
+
+    async with httpx.AsyncClient(timeout=15) as client:
+        response = await client.post(
+            GOOGLE_TOKEN_URL,
+            data={
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "code": code,
+                "grant_type": "authorization_code",
+                "redirect_uri": flow.redirect_uri,
+            },
+        )
+
+    if response.status_code >= 400:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Could not connect Google Calendar.",
+        )
+
+    token_data = response.json()
+    access_token = token_data.get("access_token")
+    expires_in = int(token_data.get("expires_in") or 3600)
+
+    if not access_token:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Google did not return an access token.",
+        )
+
+    flow.access_token = access_token
+    flow.expires_at = datetime.now(UTC) + timedelta(seconds=expires_in)
+
+
+def _get_connected_google_flow(
+    *,
+    user_email: str,
+    state: str,
+) -> _GoogleCalendarFlow:
+    flow = _GOOGLE_CALENDAR_FLOWS.get(state)
+
+    if flow is None or flow.user_email != user_email:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Google Calendar connection was not found.",
+        )
+
+    if not flow.access_token:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Google Calendar connection is not complete yet.",
+        )
+
+    if flow.expires_at is not None and flow.expires_at <= datetime.now(UTC):
+        _GOOGLE_CALENDAR_FLOWS.pop(state, None)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Google Calendar connection expired. Please connect again.",
+        )
+
+    return flow
+
+
+def get_google_calendar_connection_status(
+    *,
+    user_email: str,
+    state: str,
+) -> GoogleCalendarConnectionStatusOut:
+    flow = _GOOGLE_CALENDAR_FLOWS.get(state)
+    connected = (
+        flow is not None
+        and flow.user_email == user_email
+        and flow.access_token is not None
+        and (flow.expires_at is None or flow.expires_at > datetime.now(UTC))
+    )
+
+    return GoogleCalendarConnectionStatusOut(connected=connected)
+
+
+async def list_google_calendars(
+    *,
+    user_email: str,
+    state: str,
+) -> GoogleCalendarListOut:
+    flow = _get_connected_google_flow(user_email=user_email, state=state)
+
+    async with httpx.AsyncClient(timeout=15) as client:
+        response = await client.get(
+            f"{GOOGLE_CALENDAR_API}/users/me/calendarList",
+            headers={"Authorization": f"Bearer {flow.access_token}"},
+            params={"minAccessRole": "reader"},
+        )
+
+    if response.status_code >= 400:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Could not read Google calendars.",
+        )
+
+    calendars: list[GoogleCalendarOut] = []
+    for item in response.json().get("items", []):
+        calendar_id = item.get("id")
+        summary = item.get("summary")
+
+        if not calendar_id or not summary:
+            continue
+
+        calendars.append(
+            GoogleCalendarOut(
+                id=calendar_id,
+                summary=summary,
+                primary=bool(item.get("primary")),
+            )
+        )
+
+    return GoogleCalendarListOut(calendars=calendars)
+
+
+def _parse_google_event_dt(value: dict[str, Any] | None) -> datetime | None:
+    if not value:
+        return None
+
+    raw = value.get("dateTime")
+    if not raw:
+        return None
+
+    parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=BOGOTA_TZ)
+
+    return parsed.astimezone(BOGOTA_TZ)
+
+
+async def _fetch_google_calendar_events(
+    *,
+    access_token: str,
+    calendar_id: str,
+    time_min: datetime,
+    time_max: datetime,
+) -> list[dict[str, Any]]:
+    events: list[dict[str, Any]] = []
+    page_token: str | None = None
+
+    async with httpx.AsyncClient(timeout=20) as client:
+        while True:
+            params = {
+                "singleEvents": "true",
+                "orderBy": "startTime",
+                "timeMin": time_min.isoformat(),
+                "timeMax": time_max.isoformat(),
+                "maxResults": "2500",
+            }
+            if page_token:
+                params["pageToken"] = page_token
+
+            response = await client.get(
+                f"{GOOGLE_CALENDAR_API}/calendars/{calendar_id}/events",
+                headers={"Authorization": f"Bearer {access_token}"},
+                params=params,
+            )
+
+            if response.status_code >= 400:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Could not read Google Calendar events.",
+                )
+
+            data = response.json()
+            events.extend(data.get("items", []))
+            page_token = data.get("nextPageToken")
+
+            if not page_token:
+                return events
+
+
+def _google_event_to_class(event: dict[str, Any]) -> ClassInputData | None:
+    if event.get("status") == "cancelled":
+        return None
+
+    dt_start = _parse_google_event_dt(event.get("start"))
+    dt_end = _parse_google_event_dt(event.get("end"))
+
+    if dt_start is None or dt_end is None:
+        return None
+
+    title = (event.get("summary") or "Untitled event").strip()
+    location_text = (event.get("location") or "").strip() or None
+    room_id = _extract_room_id(location_text) if location_text else None
+    weekday = _PYTHON_WEEKDAY_MAP[dt_start.weekday()]
+
+    return ClassInputData(
+        title=title,
+        location_text=location_text,
+        room_id=room_id,
+        start_date=dt_start.date(),
+        end_date=dt_start.date(),
+        start_time=dt_start.time().replace(second=0, microsecond=0),
+        end_time=dt_end.time().replace(second=0, microsecond=0),
+        weekdays=[weekday],
+    )
+
+
 async def upload_ics_schedule(
     db: AsyncSession,
     *,
@@ -332,7 +674,15 @@ async def upload_ics_schedule(
 
     parsed, warnings = parse_ics(ics_bytes)
     class_inputs = [_parsed_to_input(p) for p in parsed]
-    _validate_class_time_ranges(class_inputs)
+    class_inputs, policy_warnings = _normalize_import_classes(class_inputs)
+    warnings.extend(policy_warnings)
+
+    if not class_inputs:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="No valid classes were found after applying import rules.",
+        )
+
     warnings.extend(await _sanitize_room_ids(db, class_inputs))
 
     try:
@@ -350,6 +700,89 @@ async def upload_ics_schedule(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Could not save schedule due to invalid related data.",
         )
+
+    return ScheduleUploadOut(
+        ok=True,
+        schedule_id=schedule_id,
+        classes_count=len(class_inputs),
+        warnings=warnings,
+    )
+
+
+async def upload_google_calendar_schedule(
+    db: AsyncSession,
+    *,
+    user_email: str,
+    state: str,
+    calendar_ids: list[str],
+) -> ScheduleUploadOut:
+    if not calendar_ids:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Select at least one Google calendar.",
+        )
+
+    if not await user_exists(db, user_email):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found. Please sign up or log in first.",
+        )
+
+    flow = _get_connected_google_flow(user_email=user_email, state=state)
+    now = datetime.now(BOGOTA_TZ)
+    time_min = now - timedelta(days=GOOGLE_IMPORT_LOOKBACK_DAYS)
+    time_max = now + timedelta(days=GOOGLE_IMPORT_LOOKAHEAD_DAYS)
+
+    raw_classes: list[ClassInputData] = []
+    warnings: list[str] = []
+
+    for calendar_id in calendar_ids:
+        events = await _fetch_google_calendar_events(
+            access_token=flow.access_token or "",
+            calendar_id=calendar_id,
+            time_min=time_min,
+            time_max=time_max,
+        )
+
+        for event in events:
+            class_input = _google_event_to_class(event)
+            if class_input is None:
+                title = event.get("summary") or "Untitled event"
+                warnings.append(
+                    f"Skipped '{title}' because it is not a timed calendar event."
+                )
+                continue
+
+            raw_classes.append(class_input)
+
+    class_inputs, policy_warnings = _normalize_import_classes(raw_classes)
+    warnings.extend(policy_warnings)
+
+    if not class_inputs:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="No valid classes were found in the selected calendars.",
+        )
+
+    warnings.extend(await _sanitize_room_ids(db, class_inputs))
+
+    try:
+        await purge_schedules_for_user(db, user_email)
+        schedule_id = await create_schedule_with_classes(
+            db,
+            user_email=user_email,
+            source=ScheduleSource.google_sync,
+            classes=class_inputs,
+        )
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Could not save Google Calendar schedule.",
+        )
+
+    _GOOGLE_CALENDAR_FLOWS.pop(state, None)
 
     return ScheduleUploadOut(
         ok=True,
