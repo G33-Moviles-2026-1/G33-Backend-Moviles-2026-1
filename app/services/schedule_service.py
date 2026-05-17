@@ -150,10 +150,24 @@ def _extract_room_id(location: str) -> str | None:
     → 'ML 515'
     """
     m = re.search(r"Sal[oó]n:\s*(\S+)", location, re.IGNORECASE)
-    if not m:
+    if m:
+        raw = m.group(1).strip().rstrip(",;")
+        return raw.replace("_", " ")
+
+    cleaned = _decode_text(location).strip().rstrip(",;")
+    if not cleaned:
         return None
-    raw = m.group(1).strip().rstrip(",;")
-    return raw.replace("_", " ")
+
+    # Google Calendar often stores Uniandes rooms directly as LOCATION,
+    # e.g. "ML_603", "LL_203", "RGD_106-7", or "O 203".
+    direct_room = re.search(
+        r"\b([A-Z]{1,5})[\s_-]+([0-9][A-Z0-9-]*)\b",
+        cleaned.upper(),
+    )
+    if direct_room:
+        return f"{direct_room.group(1)} {direct_room.group(2)}"
+
+    return None
 
 
 def _get_prop_value(vevent: str, prop_name: str) -> str | None:
