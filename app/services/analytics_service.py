@@ -13,6 +13,7 @@ from app.db.repositories.analytics_repo import (
 from app.schemas.analytics import (
     AnalyticsEventIn,
     AnalyticsEventOut,
+    FavoriteSubmittedAnalyticsOut,
     FunnelStepStat,
     MethodFunnelOut,
     RoomGapSearchEventIn,
@@ -199,6 +200,66 @@ async def track_room_gap_search_event(
 
     await db.commit()
     return RoomGapSearchEventOut(ok=True)
+
+
+FAVORITE_SUBMITTED_EVENT_NAME = "favorite_submitted"
+
+
+async def get_favorites_submitted_analytics(
+    db: AsyncSession,
+    *,
+    start_date: date | None = None,
+    end_date: date | None = None,
+    building_code: str | None = None,
+) -> list[FavoriteSubmittedAnalyticsOut]:
+    room_id_col = models.AnalyticsEvent.props_json["room_id"].astext
+    action_col = models.AnalyticsEvent.props_json["action"].astext
+
+    stmt = (
+        select(
+            models.AnalyticsEvent.session_id,
+            models.AnalyticsEvent.user_email,
+            models.AnalyticsEvent.ts,
+            models.AnalyticsEvent.screen,
+            room_id_col.label("room_id"),
+            action_col.label("action"),
+            models.Room.building_code,
+            models.Room.room_number,
+            models.AnalyticsEvent.props_json,
+        )
+        .outerjoin(models.Room, models.Room.id == room_id_col)
+        .where(models.AnalyticsEvent.event_name == FAVORITE_SUBMITTED_EVENT_NAME)
+    )
+
+    if start_date is not None:
+        stmt = stmt.where(cast(models.AnalyticsEvent.ts, Date) >= start_date)
+    if end_date is not None:
+        stmt = stmt.where(cast(models.AnalyticsEvent.ts, Date) <= end_date)
+
+    normalized_building = (
+        building_code.strip().upper() if building_code else None
+    )
+    if normalized_building:
+        stmt = stmt.where(models.Room.building_code == normalized_building)
+
+    stmt = stmt.order_by(models.AnalyticsEvent.ts.desc())
+    result = await db.execute(stmt)
+
+    return [
+        FavoriteSubmittedAnalyticsOut(
+            session_id=row.session_id,
+            user_email=row.user_email,
+            ts=row.ts,
+            event_date=row.ts.date(),
+            screen=row.screen,
+            room_id=row.room_id,
+            action=row.action,
+            building_code=row.building_code,
+            room_number=row.room_number,
+            props_json=row.props_json or {},
+        )
+        for row in result.all()
+    ]
 
 
 async def get_screen_time_stats(db: AsyncSession):

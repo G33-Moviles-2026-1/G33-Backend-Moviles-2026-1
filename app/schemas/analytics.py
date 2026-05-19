@@ -51,6 +51,22 @@ class AnalyticsEventsListResponse(BaseModel):
     total: int
     items: list[AnalyticsEventOutRead]
 
+
+class FavoriteSubmittedAnalyticsOut(BaseModel):
+    """Flattened favorite_submitted rows for Power BI."""
+
+    session_id: UUID
+    user_email: str | None = None
+    ts: datetime
+    event_date: date
+    screen: str | None = None
+    room_id: str | None = None
+    action: str | None = None
+    building_code: str | None = None
+    room_number: str | None = None
+    props_json: dict = Field(default_factory=dict)
+
+
 # ── Schedule import funnel ────────────────────────────────────────────────────
 
 ScheduleImportMethod = Literal["ics", "pdf", "google", "manual"]

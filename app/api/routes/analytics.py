@@ -18,6 +18,7 @@ from app.schemas.analytics import (
     ScheduleImportStepIn,
     ScheduleImportStepOut,
     AnalyticsEventOutRead,
+    FavoriteSubmittedAnalyticsOut,
     ScreenTimeResponse,
     BookingRoomSpecsAnalyticsResponse,
 )
@@ -28,6 +29,7 @@ from app.services.analytics_service import (
     track_schedule_import_step,
     get_screen_time_stats,
     get_booking_room_specs_analytics,
+    get_favorites_submitted_analytics,
 )
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
@@ -123,6 +125,36 @@ async def list_filters_used_events(
     result = await db.execute(stmt)
     events = result.scalars().all()
     return [_map_event_out(event) for event in events]
+
+
+@router.get(
+    "/favorites-submitted",
+    response_model=List[FavoriteSubmittedAnalyticsOut],
+    summary="List favorite_submitted analytics events for Power BI",
+    description=(
+        "Returns favorite_submitted events enriched with room_id, action, "
+        "building_code and room_number. Filter by date range and optionally "
+        "by building (e.g. ML). Power BI can connect via Web to this URL."
+    ),
+)
+async def list_favorites_submitted_events(
+    start_date: date | None = None,
+    end_date: date | None = None,
+    building_code: str | None = None,
+    db: AsyncSession = Depends(get_db),
+) -> List[FavoriteSubmittedAnalyticsOut]:
+    if start_date is not None and end_date is not None and start_date > end_date:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="start_date cannot be later than end_date",
+        )
+
+    return await get_favorites_submitted_analytics(
+        db,
+        start_date=start_date,
+        end_date=end_date,
+        building_code=building_code,
+    )
 
 
 @router.post(

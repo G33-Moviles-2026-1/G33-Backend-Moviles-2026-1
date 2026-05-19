@@ -573,6 +573,22 @@
           }
         },
         {
+          "name": "GET /analytics/favorites-submitted",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/analytics/favorites-submitted?start_date={{startDate}}&end_date={{endDate}}&building_code=ML",
+              "host": ["{{baseUrl}}"],
+              "path": ["analytics", "favorites-submitted"],
+              "query": [
+                { "key": "start_date", "value": "{{startDate}}" },
+                { "key": "end_date", "value": "{{endDate}}" },
+                { "key": "building_code", "value": "ML", "disabled": true }
+              ]
+            }
+          }
+        },
+        {
           "name": "POST /analytics/room-gap-search",
           "request": {
             "method": "POST",
