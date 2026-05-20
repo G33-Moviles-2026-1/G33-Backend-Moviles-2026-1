@@ -138,7 +138,7 @@ async def get_auto_search_recommendations(
     # Filter out any rooms that ended up having no future windows today
     candidates = [c for c in grouped.values() if len(c["matching_windows"]) > 0]
 
-    # 5. STAGE 2: Heavy Scoring (Preferences + RL)
+# 5. STAGE 2: Heavy Scoring (Preferences + RL)
     user_preferences = await list_user_room_preferences(db, user_email=user_email)
     
     # We pass the CURRENT time to the RL engine so it learns what they like *at this time of day*
@@ -146,14 +146,25 @@ async def get_auto_search_recommendations(
         db, user_email=user_email, weekday=weekday_str, slot_start=search_since
     )
 
+    # Calcular afinidad por edificio basada en las interacciones previas (RL scores)
+    building_affinity = {}
+    for row in all_available_rows:
+        score = rl_scores_map.get(row.room_id, 0.0)
+        if score > 0:
+            building_affinity[row.building_code] = building_affinity.get(row.building_code, 0.0) + score
+
     WEIGHT_BASE_PREF = 0.7
     WEIGHT_RL_SCORE = 0.3
-    EPSILON = 0.2
+    WEIGHT_BUILDING_AFFINITY = 0.15 # Bono extra para salones del mismo edificio
 
     for item in candidates:
         base_interest_score = _compute_interest_score(item, user_preferences, weekday=db_weekday)
         rl_learning_score = rl_scores_map.get(item["room_id"], 0.0)
-        item["final_ml_score"] = (base_interest_score * WEIGHT_BASE_PREF) + (rl_learning_score * WEIGHT_RL_SCORE)
+        building_score = building_affinity.get(item["building_code"], 0.0)
+        
+        item["final_ml_score"] = (base_interest_score * WEIGHT_BASE_PREF) + \
+                                 (rl_learning_score * WEIGHT_RL_SCORE) + \
+                                 (building_score * WEIGHT_BUILDING_AFFINITY)
 
     candidates.sort(key=lambda x: (-x["final_ml_score"], -x["reliability"], x["room_id"]))
 
