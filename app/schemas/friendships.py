@@ -36,3 +36,13 @@ class FriendshipOut(BaseModel):
     correo_amigo_1: str
     correo_amigo_2: str
     estado: FriendshipStatus
+
+
+class FriendItemOut(BaseModel):
+    email: str
+    username: str
+
+
+class MyFriendsResponse(BaseModel):
+    total: int
+    items: list[FriendItemOut]

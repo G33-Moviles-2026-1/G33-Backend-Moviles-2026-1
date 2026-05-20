@@ -94,6 +94,36 @@ async def delete_friendship_any_direction(
     )
     await db.commit()
 
+async def list_accepted_friends_for_user(
+    db: AsyncSession,
+    *,
+    user_email: str,
+) -> list[tuple[str, str]]:
+    friend_email_col = (
+        select(
+            Friendship.correo_amigo_2.label("friend_email")
+        ).where(
+            Friendship.correo_amigo_1 == user_email,
+            Friendship.estado == FriendshipStatus.accepted,
+        )
+        .union_all(
+            select(
+                Friendship.correo_amigo_1.label("friend_email")
+            ).where(
+                Friendship.correo_amigo_2 == user_email,
+                Friendship.estado == FriendshipStatus.accepted,
+            )
+        )
+    ).subquery()
+
+    result = await db.execute(
+        select(User.email, User.username)
+        .join(friend_email_col, User.email == friend_email_col.c.friend_email)
+        .order_by(User.username.asc())
+    )
+    return list(result.all())
+
+
 async def get_accepted_friends_emails_not_incognito(
     db: AsyncSession,
     *,

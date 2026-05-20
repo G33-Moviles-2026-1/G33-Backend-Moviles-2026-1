@@ -6,12 +6,14 @@ from app.schemas.friendships import (
     AcceptFriendshipRequest,
     CreateFriendshipRequest,
     FriendshipOut,
+    MyFriendsResponse,
 )
 from app.services.friendships_service import (
     accept_friendship_request,
     create_friendship_request,
     delete_friendship,
     get_friend_suggestions,
+    get_my_friends,
 )
 
 router = APIRouter(prefix="/friendships", tags=["friendships"])
@@ -38,6 +40,18 @@ async def create_friendship_request_endpoint(
         db,
         requester_email=user_email,
         payload=payload,
+    )
+
+
+@router.get("/mine", response_model=MyFriendsResponse)
+async def my_friends_endpoint(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> MyFriendsResponse:
+    user_email = _require_active_user_email(request)
+    return await get_my_friends(
+        db,
+        logged_user_email=user_email,
     )
 
 

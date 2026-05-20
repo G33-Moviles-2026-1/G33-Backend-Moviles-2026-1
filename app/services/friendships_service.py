@@ -7,13 +7,16 @@ from app.db.repositories.friendships_repo import (
     get_friend_suggestion_usernames,
     get_pending_friendship,
     insert_friendship,
+    list_accepted_friends_for_user,
     update_friendship_to_accepted,
     user_exists,
 )
 from app.schemas.friendships import (
     AcceptFriendshipRequest,
     CreateFriendshipRequest,
+    FriendItemOut,
     FriendshipOut,
+    MyFriendsResponse,
 )
 
 
@@ -98,6 +101,22 @@ async def delete_friendship(
         email_1=logged_user_email,
         email_2=friend_email,
     )
+
+async def get_my_friends(
+    db: AsyncSession,
+    *,
+    logged_user_email: str,
+) -> MyFriendsResponse:
+    friends = await list_accepted_friends_for_user(
+        db,
+        user_email=logged_user_email,
+    )
+    items = [
+        FriendItemOut(email=email, username=username)
+        for email, username in friends
+    ]
+    return MyFriendsResponse(total=len(items), items=items)
+
 
 async def get_friend_suggestions(
     db: AsyncSession,

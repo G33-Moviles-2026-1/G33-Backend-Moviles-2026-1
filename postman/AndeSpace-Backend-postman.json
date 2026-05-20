@@ -421,6 +421,17 @@
           }
         },
         {
+          "name": "GET /friendships/mine",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/friendships/mine",
+              "host": ["{{baseUrl}}"],
+              "path": ["friendships", "mine"]
+            }
+          }
+        },
+        {
           "name": "PUT /friendships/accept",
           "request": {
             "method": "PUT",
