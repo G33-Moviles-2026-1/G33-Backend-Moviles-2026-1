@@ -125,6 +125,10 @@ class UserPasswordUpdate(BaseModel):
     current_password: str
     new_password: str
 
+class UserShareScheduleOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    
+    share_schedule: bool
 
 class UserEmailUpdate(BaseModel):
     new_email: str

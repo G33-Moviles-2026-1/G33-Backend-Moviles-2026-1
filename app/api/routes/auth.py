@@ -250,6 +250,14 @@ async def update_my_share_schedule(
 
     return db_user
 
+@router.get("/me/share-schedule", response_model=user_schema.UserShareScheduleOut)
+async def get_my_share_schedule(
+    request: Request,
+    db: Session = Depends(session.get_db),
+):
+    db_user = await _get_current_user(request, db)
+    return db_user
+
 @router.put("/me/password")
 async def update_my_password(
     payload: user_schema.UserPasswordUpdate,
