@@ -87,7 +87,8 @@ class User(Base):
     first_semester: Mapped[str] = mapped_column(String, nullable=False)
 
     username: Mapped[str] = mapped_column(String(25), nullable=False)
-
+    share_schedule: Mapped[bool] = mapped_column(Boolean, default=True)
+    
     status: Mapped[UserStatus] = mapped_column(
         Enum(UserStatus, name="user_status"),
         nullable=False,

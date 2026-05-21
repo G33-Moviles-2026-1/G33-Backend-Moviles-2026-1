@@ -275,6 +275,7 @@ async def get_free_slots(
     return await get_free_slots_for_day(db, user_email=user_email, target_date=target)
 
 
+
 @router.get(
     "/free-rooms",
     response_model=FreeRoomsForDayOut,
@@ -369,4 +370,28 @@ async def room_recommendations_for_day(
         db,
         user_email=user_email,
         target_date=date,
+    )
+
+@router.get(
+    "/{target_email}/week",
+    response_model=WeeklyScheduleOut,
+    summary="Get a friend's weekly schedule",
+)
+async def get_friend_week(
+    target_email: str,
+    request: Request,
+    date: str | None = None,
+    db: AsyncSession = Depends(get_db),
+) -> WeeklyScheduleOut:
+    user_email = _require_active_user_email(request)
+    reference = _parse_query_date(date)
+    
+
+    from app.services.schedule_service import get_friend_weekly_schedule
+    
+    return await get_friend_weekly_schedule(
+        db,
+        requester_email=user_email,
+        target_email=target_email,
+        reference_date=reference,
     )

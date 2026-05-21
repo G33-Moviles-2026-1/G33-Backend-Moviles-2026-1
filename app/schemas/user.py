@@ -118,6 +118,8 @@ class UserStatusUpdate(BaseModel):
 class UserAuthenticate(UserBase):
     password: str
 
+class UserShareScheduleUpdate(BaseModel):
+    share_schedule: bool
 
 class UserPasswordUpdate(BaseModel):
     current_password: str

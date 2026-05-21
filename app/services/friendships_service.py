@@ -1,5 +1,6 @@
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
+from app.db.repositories.friendships_repo import list_incoming_pending_requests
 
 from app.db.repositories.friendships_repo import (
     delete_friendship_any_direction,
@@ -55,6 +56,20 @@ async def create_friendship_request(
     )
     return FriendshipOut.model_validate(friendship)
 
+async def get_incoming_requests(
+    db: AsyncSession,
+    *,
+    logged_user_email: str,
+) -> MyFriendsResponse:
+    requests = await list_incoming_pending_requests(
+        db,
+        user_email=logged_user_email,
+    )
+    items = [
+        FriendItemOut(email=email, username=username)
+        for email, username in requests
+    ]
+    return MyFriendsResponse(total=len(items), items=items)
 
 async def accept_friendship_request(
     db: AsyncSession,

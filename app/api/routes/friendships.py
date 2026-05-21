@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
+from app.services.friendships_service import get_incoming_requests
 
 from app.db.session import get_db
 from app.schemas.friendships import (
@@ -27,6 +28,17 @@ def _require_active_user_email(request: Request) -> str:
             detail="There is no active session",
         )
     return user_email
+
+@router.get("/requests/incoming", response_model=MyFriendsResponse)
+async def incoming_requests_endpoint(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> MyFriendsResponse:
+    user_email = _require_active_user_email(request)
+    return await get_incoming_requests(
+        db,
+        logged_user_email=user_email,
+    )
 
 
 @router.post("/", response_model=FriendshipOut, status_code=status.HTTP_201_CREATED)

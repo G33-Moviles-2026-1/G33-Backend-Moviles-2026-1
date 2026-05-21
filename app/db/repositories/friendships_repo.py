@@ -34,6 +34,24 @@ async def friendship_exists_any_direction(
     return result.scalar_one_or_none() is not None
 
 
+
+async def list_incoming_pending_requests(
+    db: AsyncSession,
+    *,
+    user_email: str,
+) -> list[tuple[str, str]]:
+    result = await db.execute(
+        select(User.email, User.username)
+        .join(Friendship, User.email == Friendship.correo_amigo_1)
+        .where(
+            Friendship.correo_amigo_2 == user_email,
+            Friendship.estado == FriendshipStatus.pending,
+        )
+        .order_by(User.username.asc())
+    )
+    return list(result.all())
+
+
 async def insert_friendship(
     db: AsyncSession,
     *,

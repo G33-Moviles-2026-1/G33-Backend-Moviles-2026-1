@@ -9,6 +9,10 @@ from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
 from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
+from app.db.models import User
+from sqlalchemy import select
+from app.db.repositories.friendships_repo import list_accepted_friends_for_user
+
 
 import httpx
 from fastapi import HTTPException, status
@@ -1247,4 +1251,48 @@ async def get_free_slots_for_day(
         weekday=weekday_str,
         free_slots=[FreeSlotOut(start_time=s, end_time=e)
                     for s, e in free_slots],
+    )
+
+async def get_friend_weekly_schedule(
+    db: AsyncSession,
+    *,
+    requester_email: str,
+    target_email: str,
+    reference_date: date,
+) -> WeeklyScheduleOut:
+    if requester_email == target_email:
+        return await get_weekly_schedule(
+            db,
+            user_email=target_email,
+            reference_date=reference_date,
+        )
+
+    user_res = await db.execute(select(User).where(User.email == target_email))
+    target_user = user_res.scalar_one_or_none()
+
+    if not target_user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found.",
+        )
+
+    if not getattr(target_user, "share_schedule", True):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This user does not allow others to see their schedule.",
+        )
+
+    friends = await list_accepted_friends_for_user(db, user_email=requester_email)
+    friend_emails = [friend[0] for friend in friends]
+
+    if target_email not in friend_emails:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You must be friends with this user to view their schedule.",
+        )
+
+    return await get_weekly_schedule(
+        db,
+        user_email=target_email,
+        reference_date=reference_date,
     )
