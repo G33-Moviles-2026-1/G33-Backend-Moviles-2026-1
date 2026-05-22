@@ -16,6 +16,8 @@ from app.schemas.schedule import (
     GoogleCalendarConnectionStatusOut,
     GoogleCalendarImportIn,
     GoogleCalendarListOut,
+    GroupFreeSlotsOut,
+    GroupFreeSlotsRequest,
     ManualScheduleIn,
     ManualScheduleOut,
     ScheduleClassesOut,
@@ -32,6 +34,7 @@ from app.services.schedule_service import (
     delete_schedule_class,
     delete_schedule_occurrence,
     delete_user_schedule,
+    get_best_group_free_slots,
     get_free_slots_for_day,
     get_free_rooms_for_day,
     get_google_calendar_connection_status,
@@ -274,6 +277,23 @@ async def get_free_slots(
     target = _parse_query_date(date)
     return await get_free_slots_for_day(db, user_email=user_email, target_date=target)
 
+
+@router.post(
+    "/friends/free-slots",
+    response_model=GroupFreeSlotsOut,
+    summary="Get the best shared free slots for selected friends",
+)
+async def get_group_free_slots(
+    payload: GroupFreeSlotsRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> GroupFreeSlotsOut:
+    user_email = _require_active_user_email(request)
+    return await get_best_group_free_slots(
+        db,
+        user_email=user_email,
+        payload=payload,
+    )
 
 
 @router.get(

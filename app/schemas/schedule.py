@@ -4,7 +4,7 @@ from datetime import date, time
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 # ── Upload responses ────────────────────────────────────────────────────────
 
@@ -90,6 +90,59 @@ class FreeSlotsForDayOut(BaseModel):
     date: date
     weekday: str
     free_slots: list[FreeSlotOut]
+
+
+class GroupFreeSlotsRequest(BaseModel):
+    date: date
+    friends: list[str] = Field(
+        min_length=1,
+        description="Selected friends by email or username.",
+    )
+    include_me: bool = True
+    min_slot_minutes: int = Field(default=30, ge=1, le=240)
+
+    @field_validator("friends")
+    @classmethod
+    def normalize_friends(cls, values: list[str]) -> list[str]:
+        normalized: list[str] = []
+        seen: set[str] = set()
+
+        for value in values:
+            cleaned = value.strip().lower()
+            if not cleaned:
+                continue
+            if cleaned not in seen:
+                seen.add(cleaned)
+                normalized.append(cleaned)
+
+        if not normalized:
+            raise ValueError("Select at least one friend.")
+
+        return normalized
+
+
+class GroupParticipantOut(BaseModel):
+    email: str
+    username: str
+    is_self: bool = False
+
+
+class GroupFreeSlotOut(BaseModel):
+    start_time: time
+    end_time: time
+    available_count: int
+    unavailable_count: int
+    available_participants: list[GroupParticipantOut]
+    unavailable_participants: list[GroupParticipantOut]
+
+
+class GroupFreeSlotsOut(BaseModel):
+    date: date
+    weekday: str
+    requested_friends_count: int
+    participant_count: int
+    max_available_count: int
+    slots: list[GroupFreeSlotOut]
 
 
 # ── Manual schedule input ────────────────────────────────────────────────────

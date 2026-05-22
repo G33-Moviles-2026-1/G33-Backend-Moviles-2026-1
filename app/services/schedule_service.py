@@ -11,7 +11,10 @@ from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
 from app.db.models import User
 from sqlalchemy import select
-from app.db.repositories.friendships_repo import list_accepted_friends_for_user
+from app.db.repositories.friendships_repo import (
+    list_accepted_friends_for_user,
+    resolve_user_identifier_to_email,
+)
 
 
 import httpx
@@ -45,6 +48,10 @@ from app.schemas.schedule import (
     GoogleCalendarConnectionStatusOut,
     GoogleCalendarListOut,
     GoogleCalendarOut,
+    GroupFreeSlotOut,
+    GroupFreeSlotsOut,
+    GroupParticipantOut,
+    GroupFreeSlotsRequest,
     ManualClassIn,
     ScheduleDeleteOut,
     ScheduleDeleteOccurrenceOut,
@@ -121,6 +128,20 @@ class _GoogleCalendarFlow:
     redirect_uri: str
     access_token: str | None = None
     expires_at: datetime | None = None
+
+
+@dataclass(frozen=True)
+class _GroupParticipant:
+    email: str
+    username: str
+    is_self: bool = False
+
+
+@dataclass(frozen=True)
+class _GroupAvailabilitySegment:
+    start: time
+    end: time
+    available_emails: frozenset[str]
 
 
 _GOOGLE_CALENDAR_FLOWS: dict[str, _GoogleCalendarFlow] = {}
@@ -1110,6 +1131,8 @@ def _minutes_to_time(m: int) -> time:
 
 def _compute_free_slots(
     occupied: list[tuple[time, time]],
+    *,
+    min_slot_minutes: int = MIN_FREE_SLOT_MINUTES,
 ) -> list[tuple[time, time]]:
     """Return free time windows within CAMPUS_START..CAMPUS_END."""
     if not occupied:
@@ -1138,8 +1161,149 @@ def _compute_free_slots(
     return [
         (s, e)
         for s, e in free
-        if _time_to_minutes(e) - _time_to_minutes(s) >= MIN_FREE_SLOT_MINUTES
+        if _time_to_minutes(e) - _time_to_minutes(s) >= min_slot_minutes
     ]
+
+
+def _duration_minutes(start: time, end: time) -> int:
+    return _time_to_minutes(end) - _time_to_minutes(start)
+
+
+def _participant_out(participant: _GroupParticipant) -> GroupParticipantOut:
+    return GroupParticipantOut(
+        email=participant.email,
+        username=participant.username,
+        is_self=participant.is_self,
+    )
+
+
+async def _get_user_participant(
+    db: AsyncSession,
+    *,
+    user_email: str,
+    is_self: bool,
+) -> _GroupParticipant | None:
+    result = await db.execute(
+        select(User.email, User.username)
+        .where(User.email == user_email)
+        .limit(1)
+    )
+    row = result.first()
+    if row is None:
+        return None
+
+    return _GroupParticipant(
+        email=row.email,
+        username=row.username,
+        is_self=is_self,
+    )
+
+
+async def _free_slots_for_user_date(
+    db: AsyncSession,
+    *,
+    user_email: str,
+    target_date: date,
+    min_slot_minutes: int = MIN_FREE_SLOT_MINUTES,
+) -> list[tuple[time, time]]:
+    schedule_id = await get_active_schedule_id(db, user_email)
+    if schedule_id is None:
+        return []
+
+    all_classes = await get_classes_with_weekdays(db, schedule_id)
+    weekday_str = _PYTHON_WEEKDAY_MAP[target_date.weekday()]
+
+    occupied: list[tuple[time, time]] = [
+        (cls.start_time, cls.end_time)
+        for cls in all_classes
+        if (
+            weekday_str in cls.weekdays
+            and cls.start_date <= target_date <= cls.end_date
+        )
+    ]
+
+    return _compute_free_slots(occupied, min_slot_minutes=min_slot_minutes)
+
+
+def _is_slot_covering_segment(
+    slot: tuple[time, time],
+    *,
+    start: time,
+    end: time,
+) -> bool:
+    return slot[0] <= start and slot[1] >= end
+
+
+def _best_group_availability_segments(
+    *,
+    participant_slots: dict[str, list[tuple[time, time]]],
+    min_slot_minutes: int,
+) -> tuple[int, list[_GroupAvailabilitySegment]]:
+    boundaries: set[time] = {CAMPUS_START, CAMPUS_END}
+    for slots in participant_slots.values():
+        for start, end in slots:
+            clipped_start = max(start, CAMPUS_START)
+            clipped_end = min(end, CAMPUS_END)
+            if clipped_start < clipped_end:
+                boundaries.add(clipped_start)
+                boundaries.add(clipped_end)
+
+    ordered_boundaries = sorted(boundaries)
+    raw_segments: list[_GroupAvailabilitySegment] = []
+
+    for start, end in zip(ordered_boundaries, ordered_boundaries[1:]):
+        if start >= end:
+            continue
+
+        available_emails = frozenset(
+            email
+            for email, slots in participant_slots.items()
+            if any(
+                _is_slot_covering_segment(slot, start=start, end=end)
+                for slot in slots
+            )
+        )
+
+        if available_emails:
+            raw_segments.append(
+                _GroupAvailabilitySegment(
+                    start=start,
+                    end=end,
+                    available_emails=available_emails,
+                )
+            )
+
+    for target_count in range(len(participant_slots), 0, -1):
+        merged: list[_GroupAvailabilitySegment] = []
+
+        for segment in raw_segments:
+            if len(segment.available_emails) != target_count:
+                continue
+
+            if (
+                merged
+                and merged[-1].end == segment.start
+                and merged[-1].available_emails == segment.available_emails
+            ):
+                merged[-1] = _GroupAvailabilitySegment(
+                    start=merged[-1].start,
+                    end=segment.end,
+                    available_emails=segment.available_emails,
+                )
+                continue
+
+            merged.append(segment)
+
+        filtered = [
+            segment
+            for segment in merged
+            if _duration_minutes(segment.start, segment.end) >= min_slot_minutes
+        ]
+
+        if filtered:
+            return target_count, filtered
+
+    return 0, []
 
 
 async def get_free_rooms_for_day(
@@ -1252,6 +1416,147 @@ async def get_free_slots_for_day(
         free_slots=[FreeSlotOut(start_time=s, end_time=e)
                     for s, e in free_slots],
     )
+
+
+async def get_best_group_free_slots(
+    db: AsyncSession,
+    *,
+    user_email: str,
+    payload: GroupFreeSlotsRequest,
+) -> GroupFreeSlotsOut:
+    accepted_friends = await list_accepted_friends_for_user(
+        db,
+        user_email=user_email,
+    )
+    accepted_friend_emails = {friend[0] for friend in accepted_friends}
+
+    participants_by_email: dict[str, _GroupParticipant] = {}
+
+    if payload.include_me:
+        self_participant = await _get_user_participant(
+            db,
+            user_email=user_email,
+            is_self=True,
+        )
+        if self_participant is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Your user account was not found.",
+            )
+        participants_by_email[self_participant.email] = self_participant
+
+    for identifier in payload.friends:
+        friend_email = await resolve_user_identifier_to_email(
+            db,
+            identifier=identifier,
+        )
+        if friend_email is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Friend '{identifier}' was not found.",
+            )
+
+        if friend_email == user_email:
+            if payload.include_me:
+                continue
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Use include_me=true instead of selecting yourself as a friend.",
+            )
+
+        if friend_email not in accepted_friend_emails:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"You must be friends with '{identifier}' to use their schedule.",
+            )
+
+        friend_row = next(
+            (friend for friend in accepted_friends if friend[0] == friend_email),
+            None,
+        )
+        if friend_row is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Friend '{identifier}' was not found.",
+            )
+
+        _, username, _, share_schedule = friend_row
+        if not share_schedule:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Friend '{username}' does not share their schedule.",
+            )
+
+        participants_by_email[friend_email] = _GroupParticipant(
+            email=friend_email,
+            username=username,
+            is_self=False,
+        )
+
+    if not participants_by_email:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Select at least one participant.",
+        )
+
+    participant_slots: dict[str, list[tuple[time, time]]] = {}
+    for participant in participants_by_email.values():
+        participant_slots[participant.email] = await _free_slots_for_user_date(
+            db,
+            user_email=participant.email,
+            target_date=payload.date,
+            min_slot_minutes=payload.min_slot_minutes,
+        )
+
+    max_available_count, best_segments = _best_group_availability_segments(
+        participant_slots=participant_slots,
+        min_slot_minutes=payload.min_slot_minutes,
+    )
+
+    participants = participants_by_email
+    participant_count = len(participants)
+    slots: list[GroupFreeSlotOut] = []
+
+    for segment in best_segments:
+        available = [
+            participants[email]
+            for email in sorted(segment.available_emails)
+            if email in participants
+        ]
+        unavailable = [
+            participant
+            for email, participant in sorted(participants.items())
+            if email not in segment.available_emails
+        ]
+
+        slots.append(
+            GroupFreeSlotOut(
+                start_time=segment.start,
+                end_time=segment.end,
+                available_count=len(available),
+                unavailable_count=len(unavailable),
+                available_participants=[
+                    _participant_out(participant) for participant in available
+                ],
+                unavailable_participants=[
+                    _participant_out(participant) for participant in unavailable
+                ],
+            )
+        )
+
+    weekday_str = _PYTHON_WEEKDAY_MAP[payload.date.weekday()]
+
+    return GroupFreeSlotsOut(
+        date=payload.date,
+        weekday=weekday_str,
+        requested_friends_count=sum(
+            1 for participant in participants.values() if not participant.is_self
+        ),
+        participant_count=participant_count,
+        max_available_count=max_available_count,
+        slots=slots,
+    )
+
 
 async def get_friend_weekly_schedule(
     db: AsyncSession,
