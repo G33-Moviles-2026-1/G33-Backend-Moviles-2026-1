@@ -19,6 +19,8 @@ from app.schemas.analytics import (
     ScheduleImportStepOut,
     AnalyticsEventOutRead,
     FavoriteSubmittedAnalyticsOut,
+    FriendshipNetworkDensityOut,
+    FriendshipNetworkDensitySnapshotsResponse,
     ScreenTimeResponse,
     BookingRoomSpecsAnalyticsResponse,
 )
@@ -30,6 +32,9 @@ from app.services.analytics_service import (
     get_screen_time_stats,
     get_booking_room_specs_analytics,
     get_favorites_submitted_analytics,
+    compute_friendship_network_density,
+    record_friendship_network_density_snapshot,
+    get_friendship_network_density_snapshots,
 )
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
@@ -154,6 +159,61 @@ async def list_favorites_submitted_events(
         start_date=start_date,
         end_date=end_date,
         building_code=building_code,
+    )
+
+
+@router.get(
+    "/friendship-network-density",
+    response_model=FriendshipNetworkDensityOut,
+    summary="Current friendship network density (live)",
+    description=(
+        "Density = accepted_friendships / max_possible_friendships, where "
+        "max_possible = total_users * (total_users - 1) / 2 among all registered users."
+    ),
+)
+async def friendship_network_density_live(
+    db: AsyncSession = Depends(get_db),
+) -> FriendshipNetworkDensityOut:
+    return await compute_friendship_network_density(db)
+
+
+@router.post(
+    "/friendship-network-density/snapshot",
+    response_model=FriendshipNetworkDensityOut,
+    status_code=status.HTTP_201_CREATED,
+    summary="Record friendship network density snapshot for Power BI history",
+    description=(
+        "Computes density, stores a friendship_network_density_snapshot "
+        "analytics event, and returns the metrics. Call on a schedule (e.g. daily) "
+        "to build a time series in Power BI."
+    ),
+)
+async def friendship_network_density_snapshot(
+    db: AsyncSession = Depends(get_db),
+) -> FriendshipNetworkDensityOut:
+    return await record_friendship_network_density_snapshot(db)
+
+
+@router.get(
+    "/friendship-network-density/snapshots",
+    response_model=FriendshipNetworkDensitySnapshotsResponse,
+    summary="List friendship network density snapshots for Power BI",
+)
+async def friendship_network_density_snapshots(
+    start_date: date | None = None,
+    end_date: date | None = None,
+    db: AsyncSession = Depends(get_db),
+) -> FriendshipNetworkDensitySnapshotsResponse:
+    if start_date is not None and end_date is not None and start_date > end_date:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="start_date cannot be later than end_date",
+        )
+
+    return await get_friendship_network_density_snapshots(
+        db,
+        start_date=start_date,
+        end_date=end_date,
     )
 
 

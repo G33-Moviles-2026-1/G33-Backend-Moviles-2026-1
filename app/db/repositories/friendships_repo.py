@@ -1,7 +1,33 @@
-from sqlalchemy import delete, or_, select, text
+from sqlalchemy import delete, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Friendship, FriendshipStatus, User, UserStatus
+
+
+async def resolve_user_identifier_to_email(
+    db: AsyncSession,
+    *,
+    identifier: str,
+) -> str | None:
+    """
+    Accepts either a user email or username (correo_amigo_* fields / path params).
+    """
+    cleaned = identifier.strip().lower()
+    if not cleaned:
+        return None
+
+    if "@" in cleaned:
+        result = await db.execute(
+            select(User.email).where(User.email == cleaned).limit(1)
+        )
+        return result.scalar_one_or_none()
+
+    result = await db.execute(
+        select(User.email)
+        .where(func.lower(User.username) == cleaned)
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
 
 
 async def user_exists(
@@ -9,10 +35,8 @@ async def user_exists(
     *,
     email: str,
 ) -> bool:
-    result = await db.execute(
-        select(User.email).where(User.email == email).limit(1)
-    )
-    return result.scalar_one_or_none() is not None
+    resolved = await resolve_user_identifier_to_email(db, identifier=email)
+    return resolved is not None
 
 
 async def friendship_exists_any_direction(
@@ -45,6 +69,23 @@ async def list_incoming_pending_requests(
         .join(Friendship, User.email == Friendship.correo_amigo_1)
         .where(
             Friendship.correo_amigo_2 == user_email,
+            Friendship.estado == FriendshipStatus.pending,
+        )
+        .order_by(User.username.asc())
+    )
+    return list(result.all())
+
+
+async def list_outgoing_pending_requests(
+    db: AsyncSession,
+    *,
+    user_email: str,
+) -> list[tuple[str, str, str]]:
+    result = await db.execute(
+        select(User.email, User.username, User.status)
+        .join(Friendship, User.email == Friendship.correo_amigo_2)
+        .where(
+            Friendship.correo_amigo_1 == user_email,
             Friendship.estado == FriendshipStatus.pending,
         )
         .order_by(User.username.asc())
@@ -112,11 +153,26 @@ async def delete_friendship_any_direction(
     )
     await db.commit()
 
+
+async def count_total_users(db: AsyncSession) -> int:
+    result = await db.execute(select(func.count()).select_from(User))
+    return int(result.scalar_one() or 0)
+
+
+async def count_accepted_friendships(db: AsyncSession) -> int:
+    result = await db.execute(
+        select(func.count())
+        .select_from(Friendship)
+        .where(Friendship.estado == FriendshipStatus.accepted)
+    )
+    return int(result.scalar_one() or 0)
+
+
 async def list_accepted_friends_for_user(
     db: AsyncSession,
     *,
     user_email: str,
-) -> list[tuple[str, str]]:
+) -> list[tuple[str, str, str]]:
     friend_email_col = (
         select(
             Friendship.correo_amigo_2.label("friend_email")

@@ -9,6 +9,8 @@ from app.db.repositories.friendships_repo import (
     get_pending_friendship,
     insert_friendship,
     list_accepted_friends_for_user,
+    list_outgoing_pending_requests,
+    resolve_user_identifier_to_email,
     update_friendship_to_accepted,
     user_exists,
 )
@@ -27,22 +29,26 @@ async def create_friendship_request(
     requester_email: str,
     payload: CreateFriendshipRequest,
 ) -> FriendshipOut:
-    if requester_email == payload.correo_amigo_2:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="you cannot add yourself as friend",
-        )
-
-    if not await user_exists(db, email=payload.correo_amigo_2):
+    friend_email = await resolve_user_identifier_to_email(
+        db,
+        identifier=payload.correo_amigo_2,
+    )
+    if not friend_email:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="friend user was not found",
         )
 
+    if requester_email == friend_email:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="you cannot add yourself as friend",
+        )
+
     if await friendship_exists_any_direction(
         db,
         email_1=requester_email,
-        email_2=payload.correo_amigo_2,
+        email_2=friend_email,
     ):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -52,10 +58,39 @@ async def create_friendship_request(
     friendship = await insert_friendship(
         db,
         correo_amigo_1=requester_email,
-        correo_amigo_2=payload.correo_amigo_2,
+        correo_amigo_2=friend_email,
     )
     return FriendshipOut.model_validate(friendship)
 
+async def get_incoming_requests(
+    db: AsyncSession,
+    *,
+    logged_user_email: str,
+) -> MyFriendsResponse:
+    requests = await list_incoming_pending_requests(
+        db,
+        user_email=logged_user_email,
+    )
+    items = [
+        FriendItemOut(email=email, username=username, status=status.value)
+        for email, username, status in requests
+    ]
+    return MyFriendsResponse(total=len(items), items=items)
+
+async def get_outgoing_requests(
+    db: AsyncSession,
+    *,
+    logged_user_email: str,
+) -> MyFriendsResponse:
+    requests = await list_outgoing_pending_requests(
+        db,
+        user_email=logged_user_email,
+    )
+    items = [
+        FriendItemOut(email=email, username=username, status=status.value)
+        for email, username, status in requests
+    ]
+    return MyFriendsResponse(total=len(items), items=items)
 
 async def accept_friendship_request(
     db: AsyncSession,
@@ -63,9 +98,19 @@ async def accept_friendship_request(
     logged_user_email: str,
     payload: AcceptFriendshipRequest,
 ) -> FriendshipOut:
+    requester_email = await resolve_user_identifier_to_email(
+        db,
+        identifier=payload.correo_amigo_1,
+    )
+    if not requester_email:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="pending friendship request was not found",
+        )
+
     friendship = await get_pending_friendship(
         db,
-        correo_amigo_1=payload.correo_amigo_1,
+        correo_amigo_1=requester_email,
         correo_amigo_2=logged_user_email,
     )
     if not friendship:
@@ -87,10 +132,20 @@ async def delete_friendship(
     logged_user_email: str,
     friend_email: str,
 ) -> None:
+    resolved_friend_email = await resolve_user_identifier_to_email(
+        db,
+        identifier=friend_email,
+    )
+    if not resolved_friend_email:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="friendship was not found",
+        )
+
     if not await friendship_exists_any_direction(
         db,
         email_1=logged_user_email,
-        email_2=friend_email,
+        email_2=resolved_friend_email,
     ):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -100,7 +155,7 @@ async def delete_friendship(
     await delete_friendship_any_direction(
         db,
         email_1=logged_user_email,
-        email_2=friend_email,
+        email_2=resolved_friend_email,
     )
 
 async def get_my_friends(

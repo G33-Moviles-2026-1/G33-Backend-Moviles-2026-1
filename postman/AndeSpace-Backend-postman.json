@@ -196,25 +196,6 @@
           }
         },
         {
-          "name": "PUT /me/email",
-          "description": "Cambia el correo del usuario. Requiere contrasena actual. Solo se puede cambiar una vez cada 30 dias. Retorna 429 si no cumple el cooldown.",
-          "request": {
-            "method": "PUT",
-            "header": [
-              { "key": "Content-Type", "value": "application/json" }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"new_email\": \"nuevo_correo@uniandes.edu.co\",\n  \"current_password\": \"{{password}}\"\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/me/email",
-              "host": ["{{baseUrl}}"],
-              "path": ["me", "email"]
-            }
-          }
-        },
-        {
           "name": "GET /email/{user_email}",
           "request": {
             "method": "GET",
@@ -595,6 +576,43 @@
                 { "key": "start_date", "value": "{{startDate}}" },
                 { "key": "end_date", "value": "{{endDate}}" },
                 { "key": "building_code", "value": "ML", "disabled": true }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GET /analytics/friendship-network-density",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/analytics/friendship-network-density",
+              "host": ["{{baseUrl}}"],
+              "path": ["analytics", "friendship-network-density"]
+            }
+          }
+        },
+        {
+          "name": "POST /analytics/friendship-network-density/snapshot",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseUrl}}/analytics/friendship-network-density/snapshot",
+              "host": ["{{baseUrl}}"],
+              "path": ["analytics", "friendship-network-density", "snapshot"]
+            }
+          }
+        },
+        {
+          "name": "GET /analytics/friendship-network-density/snapshots",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/analytics/friendship-network-density/snapshots?start_date={{startDate}}&end_date={{endDate}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["analytics", "friendship-network-density", "snapshots"],
+              "query": [
+                { "key": "start_date", "value": "{{startDate}}" },
+                { "key": "end_date", "value": "{{endDate}}" }
               ]
             }
           }
