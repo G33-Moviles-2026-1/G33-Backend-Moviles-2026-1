@@ -4,15 +4,39 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models import Friendship, FriendshipStatus, User, UserStatus
 
 
+async def resolve_user_identifier_to_email(
+    db: AsyncSession,
+    *,
+    identifier: str,
+) -> str | None:
+    """
+    Accepts either a user email or username (correo_amigo_* fields / path params).
+    """
+    cleaned = identifier.strip().lower()
+    if not cleaned:
+        return None
+
+    if "@" in cleaned:
+        result = await db.execute(
+            select(User.email).where(User.email == cleaned).limit(1)
+        )
+        return result.scalar_one_or_none()
+
+    result = await db.execute(
+        select(User.email)
+        .where(func.lower(User.username) == cleaned)
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
+
+
 async def user_exists(
     db: AsyncSession,
     *,
     email: str,
 ) -> bool:
-    result = await db.execute(
-        select(User.email).where(User.email == email).limit(1)
-    )
-    return result.scalar_one_or_none() is not None
+    resolved = await resolve_user_identifier_to_email(db, identifier=email)
+    return resolved is not None
 
 
 async def friendship_exists_any_direction(
