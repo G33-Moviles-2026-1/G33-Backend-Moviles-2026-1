@@ -56,20 +56,6 @@ async def create_friendship_request(
     )
     return FriendshipOut.model_validate(friendship)
 
-async def get_incoming_requests(
-    db: AsyncSession,
-    *,
-    logged_user_email: str,
-) -> MyFriendsResponse:
-    requests = await list_incoming_pending_requests(
-        db,
-        user_email=logged_user_email,
-    )
-    items = [
-        FriendItemOut(email=email, username=username)
-        for email, username in requests
-    ]
-    return MyFriendsResponse(total=len(items), items=items)
 
 async def accept_friendship_request(
     db: AsyncSession,
@@ -127,8 +113,33 @@ async def get_my_friends(
         user_email=logged_user_email,
     )
     items = [
-        FriendItemOut(email=email, username=username)
-        for email, username in friends
+        FriendItemOut(
+            email=email, 
+            username=username, 
+            status=status, 
+            share_schedule=share_schedule
+        )
+        for email, username, status, share_schedule in friends
+    ]
+    return MyFriendsResponse(total=len(items), items=items)
+
+async def get_incoming_requests(
+    db: AsyncSession,
+    *,
+    logged_user_email: str,
+) -> MyFriendsResponse:
+    requests = await list_incoming_pending_requests(
+        db,
+        user_email=logged_user_email,
+    )
+    items = [
+        FriendItemOut(
+            email=email, 
+            username=username, 
+            status=status, 
+            share_schedule=share_schedule
+        )
+        for email, username, status, share_schedule in requests
     ]
     return MyFriendsResponse(total=len(items), items=items)
 

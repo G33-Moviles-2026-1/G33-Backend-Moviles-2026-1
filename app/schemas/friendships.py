@@ -1,5 +1,5 @@
 from pydantic import BaseModel, ConfigDict, field_validator
-from app.db.models import FriendshipStatus
+from app.db.models import FriendshipStatus, UserStatus
 
 
 class FriendshipBase(BaseModel):
@@ -37,11 +37,11 @@ class FriendshipOut(BaseModel):
     correo_amigo_2: str
     estado: FriendshipStatus
 
-
 class FriendItemOut(BaseModel):
     email: str
     username: str
-
+    status: UserStatus
+    share_schedule: bool
 
 class MyFriendsResponse(BaseModel):
     total: int

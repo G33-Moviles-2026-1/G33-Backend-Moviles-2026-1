@@ -39,9 +39,9 @@ async def list_incoming_pending_requests(
     db: AsyncSession,
     *,
     user_email: str,
-) -> list[tuple[str, str]]:
+) -> list[tuple]:
     result = await db.execute(
-        select(User.email, User.username)
+        select(User.email, User.username, User.status, User.share_schedule)
         .join(Friendship, User.email == Friendship.correo_amigo_1)
         .where(
             Friendship.correo_amigo_2 == user_email,
@@ -135,7 +135,7 @@ async def list_accepted_friends_for_user(
     ).subquery()
 
     result = await db.execute(
-        select(User.email, User.username)
+        select(User.email, User.username, User.status, User.share_schedule)
         .join(friend_email_col, User.email == friend_email_col.c.friend_email)
         .order_by(User.username.asc())
     )
