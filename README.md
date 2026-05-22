@@ -221,10 +221,22 @@ This creates all tables with the latest schema, including the `notifications` ta
 
 ### For an existing database
 
-If you already have a database from before these changes, you must manually apply the migration:
+Run all migrations at once:
+
+```powershell
+# Windows (PowerShell)
+.\scripts\migrate.ps1
+```
 
 ```bash
-docker compose exec db psql -U andespace -d andespace < migrations/001_notifications_and_email_cascade.sql
+# Mac / Linux / WSL
+bash scripts/migrate.sh
+```
+
+Or apply a single migration manually:
+
+```bash
+docker compose exec -T db psql -U andespace -d andespace < scripts/migrations/001_notifications_and_email_cascade.sql
 ```
 
 **What this migration does:**
@@ -339,10 +351,10 @@ Expected response:
 
 If you're setting up from scratch, skip this step. The `init_db` command in Step 6 already created all tables with the latest schema.
 
-If you're upgrading an existing database that was created before May 2026, apply the migration to add the notifications system and email cooldown:
+If you're upgrading an existing database that was created before May 2026, run all migrations:
 
-```bash
-docker compose exec db psql -U andespace -d andespace < migrations/001_notifications_and_email_cascade.sql
+```powershell
+.\scripts\migrate.ps1
 ```
 
 See **Section 5) Database migrations** for more details.
