@@ -17,6 +17,7 @@ AnalyticsEventName = Literal[
     "room_gap_search_submitted",
     "schedule_import_step",
     "favorite_submitted",
+    "friendship_network_density_snapshot",
 ]
 
 
@@ -65,6 +66,31 @@ class FavoriteSubmittedAnalyticsOut(BaseModel):
     building_code: str | None = None
     room_number: str | None = None
     props_json: dict = Field(default_factory=dict)
+
+
+class FriendshipNetworkDensityOut(BaseModel):
+    """
+    Density = accepted_friendships / max_possible_friendships.
+    max_possible uses all registered users: n * (n - 1) / 2.
+    """
+
+    computed_at: datetime
+    total_users: int
+    accepted_friendships: int
+    max_possible_friendships: int
+    density_ratio: float
+    density_pct: float
+
+
+class FriendshipNetworkDensitySnapshotOut(FriendshipNetworkDensityOut):
+    """One stored analytics snapshot row for Power BI time series."""
+
+    session_id: UUID
+
+
+class FriendshipNetworkDensitySnapshotsResponse(BaseModel):
+    total: int
+    items: list[FriendshipNetworkDensitySnapshotOut]
 
 
 # ── Schedule import funnel ────────────────────────────────────────────────────

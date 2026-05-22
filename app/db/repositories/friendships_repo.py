@@ -1,4 +1,4 @@
-from sqlalchemy import delete, or_, select, text
+from sqlalchemy import delete, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Friendship, FriendshipStatus, User, UserStatus
@@ -111,6 +111,21 @@ async def delete_friendship_any_direction(
         )
     )
     await db.commit()
+
+
+async def count_total_users(db: AsyncSession) -> int:
+    result = await db.execute(select(func.count()).select_from(User))
+    return int(result.scalar_one() or 0)
+
+
+async def count_accepted_friendships(db: AsyncSession) -> int:
+    result = await db.execute(
+        select(func.count())
+        .select_from(Friendship)
+        .where(Friendship.estado == FriendshipStatus.accepted)
+    )
+    return int(result.scalar_one() or 0)
+
 
 async def list_accepted_friends_for_user(
     db: AsyncSession,

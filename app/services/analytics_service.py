@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from uuid import UUID
+
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import models
 from sqlalchemy import func, select, text, cast, String, Date
@@ -10,10 +12,17 @@ from app.db.repositories.analytics_repo import (
     get_schedule_import_funnel_raw,
     insert_analytics_event,
 )
+from app.db.repositories.friendships_repo import (
+    count_accepted_friendships,
+    count_total_users,
+)
 from app.schemas.analytics import (
     AnalyticsEventIn,
     AnalyticsEventOut,
     FavoriteSubmittedAnalyticsOut,
+    FriendshipNetworkDensityOut,
+    FriendshipNetworkDensitySnapshotOut,
+    FriendshipNetworkDensitySnapshotsResponse,
     FunnelStepStat,
     MethodFunnelOut,
     RoomGapSearchEventIn,
@@ -260,6 +269,146 @@ async def get_favorites_submitted_analytics(
         )
         for row in result.all()
     ]
+
+
+FRIENDSHIP_NETWORK_DENSITY_EVENT_NAME = "friendship_network_density_snapshot"
+SYSTEM_ANALYTICS_SESSION_ID = UUID("00000000-0000-4000-8000-000000000001")
+
+
+def _max_possible_friendships(total_users: int) -> int:
+    if total_users < 2:
+        return 0
+    return total_users * (total_users - 1) // 2
+
+
+def _build_friendship_network_density(
+    *,
+    total_users: int,
+    accepted_friendships: int,
+    computed_at: datetime | None = None,
+) -> FriendshipNetworkDensityOut:
+    max_possible = _max_possible_friendships(total_users)
+    density_ratio = (
+        accepted_friendships / max_possible if max_possible > 0 else 0.0
+    )
+
+    return FriendshipNetworkDensityOut(
+        computed_at=computed_at or datetime.now(timezone.utc),
+        total_users=total_users,
+        accepted_friendships=accepted_friendships,
+        max_possible_friendships=max_possible,
+        density_ratio=round(density_ratio, 6),
+        density_pct=round(density_ratio * 100, 2),
+    )
+
+
+async def compute_friendship_network_density(
+    db: AsyncSession,
+) -> FriendshipNetworkDensityOut:
+    total_users = await count_total_users(db)
+    accepted_friendships = await count_accepted_friendships(db)
+    return _build_friendship_network_density(
+        total_users=total_users,
+        accepted_friendships=accepted_friendships,
+    )
+
+
+def _density_from_props(
+    props: dict,
+    *,
+    session_id: UUID,
+    ts: datetime,
+) -> FriendshipNetworkDensitySnapshotOut | None:
+    if not props:
+        return None
+
+    try:
+        computed_at_raw = props.get("computed_at")
+        if isinstance(computed_at_raw, str):
+            computed_at = datetime.fromisoformat(
+                computed_at_raw.replace("Z", "+00:00")
+            )
+        else:
+            computed_at = ts
+
+        return FriendshipNetworkDensitySnapshotOut(
+            session_id=session_id,
+            computed_at=computed_at,
+            total_users=int(props["total_users"]),
+            accepted_friendships=int(props["accepted_friendships"]),
+            max_possible_friendships=int(props["max_possible_friendships"]),
+            density_ratio=float(props["density_ratio"]),
+            density_pct=float(props["density_pct"]),
+        )
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+async def record_friendship_network_density_snapshot(
+    db: AsyncSession,
+) -> FriendshipNetworkDensityOut:
+    metrics = await compute_friendship_network_density(db)
+
+    await ensure_session_exists(
+        db,
+        session_id=SYSTEM_ANALYTICS_SESSION_ID,
+        device_id="backend-snapshot",
+        user_email=None,
+    )
+
+    await insert_analytics_event(
+        db,
+        session_id=SYSTEM_ANALYTICS_SESSION_ID,
+        user_email=None,
+        event_name=FRIENDSHIP_NETWORK_DENSITY_EVENT_NAME,
+        screen="analytics",
+        duration_ms=None,
+        props_json={
+            "total_users": metrics.total_users,
+            "accepted_friendships": metrics.accepted_friendships,
+            "max_possible_friendships": metrics.max_possible_friendships,
+            "density_ratio": metrics.density_ratio,
+            "density_pct": metrics.density_pct,
+            "computed_at": metrics.computed_at.isoformat(),
+        },
+    )
+
+    await db.commit()
+    return metrics
+
+
+async def get_friendship_network_density_snapshots(
+    db: AsyncSession,
+    *,
+    start_date: date | None = None,
+    end_date: date | None = None,
+) -> FriendshipNetworkDensitySnapshotsResponse:
+    stmt = select(models.AnalyticsEvent).where(
+        models.AnalyticsEvent.event_name == FRIENDSHIP_NETWORK_DENSITY_EVENT_NAME
+    )
+
+    if start_date is not None:
+        stmt = stmt.where(cast(models.AnalyticsEvent.ts, Date) >= start_date)
+    if end_date is not None:
+        stmt = stmt.where(cast(models.AnalyticsEvent.ts, Date) <= end_date)
+
+    stmt = stmt.order_by(models.AnalyticsEvent.ts.desc())
+    result = await db.execute(stmt)
+
+    items: list[FriendshipNetworkDensitySnapshotOut] = []
+    for event in result.scalars().all():
+        snapshot = _density_from_props(
+            event.props_json or {},
+            session_id=event.session_id,
+            ts=event.ts,
+        )
+        if snapshot is not None:
+            items.append(snapshot)
+
+    return FriendshipNetworkDensitySnapshotsResponse(
+        total=len(items),
+        items=items,
+    )
 
 
 async def get_screen_time_stats(db: AsyncSession):
