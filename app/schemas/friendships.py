@@ -41,6 +41,7 @@ class FriendshipOut(BaseModel):
 class FriendItemOut(BaseModel):
     email: str
     username: str
+    status: str
 
 
 class MyFriendsResponse(BaseModel):

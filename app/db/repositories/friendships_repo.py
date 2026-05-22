@@ -63,12 +63,29 @@ async def list_incoming_pending_requests(
     db: AsyncSession,
     *,
     user_email: str,
-) -> list[tuple[str, str]]:
+) -> list[tuple[str, str, str]]:
     result = await db.execute(
-        select(User.email, User.username)
+        select(User.email, User.username, User.status)
         .join(Friendship, User.email == Friendship.correo_amigo_1)
         .where(
             Friendship.correo_amigo_2 == user_email,
+            Friendship.estado == FriendshipStatus.pending,
+        )
+        .order_by(User.username.asc())
+    )
+    return list(result.all())
+
+
+async def list_outgoing_pending_requests(
+    db: AsyncSession,
+    *,
+    user_email: str,
+) -> list[tuple[str, str, str]]:
+    result = await db.execute(
+        select(User.email, User.username, User.status)
+        .join(Friendship, User.email == Friendship.correo_amigo_2)
+        .where(
+            Friendship.correo_amigo_1 == user_email,
             Friendship.estado == FriendshipStatus.pending,
         )
         .order_by(User.username.asc())
@@ -155,7 +172,7 @@ async def list_accepted_friends_for_user(
     db: AsyncSession,
     *,
     user_email: str,
-) -> list[tuple[str, str]]:
+) -> list[tuple[str, str, str]]:
     friend_email_col = (
         select(
             Friendship.correo_amigo_2.label("friend_email")
@@ -174,7 +191,7 @@ async def list_accepted_friends_for_user(
     ).subquery()
 
     result = await db.execute(
-        select(User.email, User.username)
+        select(User.email, User.username, User.status)
         .join(friend_email_col, User.email == friend_email_col.c.friend_email)
         .order_by(User.username.asc())
     )

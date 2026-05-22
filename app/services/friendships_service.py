@@ -9,6 +9,7 @@ from app.db.repositories.friendships_repo import (
     get_pending_friendship,
     insert_friendship,
     list_accepted_friends_for_user,
+    list_outgoing_pending_requests,
     resolve_user_identifier_to_email,
     update_friendship_to_accepted,
     user_exists,
@@ -71,8 +72,23 @@ async def get_incoming_requests(
         user_email=logged_user_email,
     )
     items = [
-        FriendItemOut(email=email, username=username)
-        for email, username in requests
+        FriendItemOut(email=email, username=username, status=status.value)
+        for email, username, status in requests
+    ]
+    return MyFriendsResponse(total=len(items), items=items)
+
+async def get_outgoing_requests(
+    db: AsyncSession,
+    *,
+    logged_user_email: str,
+) -> MyFriendsResponse:
+    requests = await list_outgoing_pending_requests(
+        db,
+        user_email=logged_user_email,
+    )
+    items = [
+        FriendItemOut(email=email, username=username, status=status.value)
+        for email, username, status in requests
     ]
     return MyFriendsResponse(total=len(items), items=items)
 
@@ -152,8 +168,8 @@ async def get_my_friends(
         user_email=logged_user_email,
     )
     items = [
-        FriendItemOut(email=email, username=username)
-        for email, username in friends
+        FriendItemOut(email=email, username=username, status=status.value)
+        for email, username, status in friends
     ]
     return MyFriendsResponse(total=len(items), items=items)
 
