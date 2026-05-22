@@ -129,21 +129,3 @@ class UserShareScheduleOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     
     share_schedule: bool
-
-class UserEmailUpdate(BaseModel):
-    new_email: str
-    current_password: str
-
-    @field_validator("new_email")
-    @classmethod
-    def validate_new_email_domain(cls, value: str) -> str:
-        allowed_domain = "@uniandes.edu.co"
-        cleaned = value.strip().lower()
-
-        if not cleaned.endswith(allowed_domain):
-            raise HTTPException(
-                status_code=403,
-                detail=f"The email must match with {allowed_domain}",
-            )
-
-        return cleaned

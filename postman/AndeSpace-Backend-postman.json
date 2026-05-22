@@ -196,25 +196,6 @@
           }
         },
         {
-          "name": "PUT /me/email",
-          "description": "Cambia el correo del usuario. Requiere contrasena actual. Solo se puede cambiar una vez cada 30 dias. Retorna 429 si no cumple el cooldown.",
-          "request": {
-            "method": "PUT",
-            "header": [
-              { "key": "Content-Type", "value": "application/json" }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"new_email\": \"nuevo_correo@uniandes.edu.co\",\n  \"current_password\": \"{{password}}\"\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/me/email",
-              "host": ["{{baseUrl}}"],
-              "path": ["me", "email"]
-            }
-          }
-        },
-        {
           "name": "GET /email/{user_email}",
           "request": {
             "method": "GET",
