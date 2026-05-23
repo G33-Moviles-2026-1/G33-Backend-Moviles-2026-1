@@ -80,9 +80,9 @@ async def list_outgoing_pending_requests(
     db: AsyncSession,
     *,
     user_email: str,
-) -> list[tuple[str, str, str]]:
+) -> list[tuple]:
     result = await db.execute(
-        select(User.email, User.username, User.status)
+        select(User.email, User.username, User.status, User.share_schedule)
         .join(Friendship, User.email == Friendship.correo_amigo_2)
         .where(
             Friendship.correo_amigo_1 == user_email,

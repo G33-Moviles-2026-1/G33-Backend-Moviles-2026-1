@@ -1,6 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.services.friendships_service import get_incoming_requests
 
 from app.db.session import get_db
 from app.schemas.friendships import (
@@ -15,6 +14,7 @@ from app.services.friendships_service import (
     delete_friendship,
     get_friend_suggestions,
     get_my_friends,
+    get_incoming_requests,
     get_outgoing_requests,
 )
 

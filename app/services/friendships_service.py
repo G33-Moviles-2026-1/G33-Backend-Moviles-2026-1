@@ -1,6 +1,5 @@
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.db.repositories.friendships_repo import list_incoming_pending_requests
 
 from app.db.repositories.friendships_repo import (
     delete_friendship_any_direction,
@@ -9,6 +8,7 @@ from app.db.repositories.friendships_repo import (
     get_pending_friendship,
     insert_friendship,
     list_accepted_friends_for_user,
+    list_incoming_pending_requests,
     list_outgoing_pending_requests,
     resolve_user_identifier_to_email,
     update_friendship_to_accepted,
@@ -22,6 +22,22 @@ from app.schemas.friendships import (
     MyFriendsResponse,
 )
 
+def _status_value(value) -> str:
+    if hasattr(value, "value"):
+        return value.value
+    return str(value)
+
+
+def _friend_items_from_rows(rows) -> list[FriendItemOut]:
+    return [
+        FriendItemOut(
+            email=email,
+            username=username,
+            status=_status_value(user_status),
+            share_schedule=share_schedule,
+        )
+        for email, username, user_status, share_schedule in rows
+    ]
 
 async def create_friendship_request(
     db: AsyncSession,
@@ -71,10 +87,7 @@ async def get_incoming_requests(
         db,
         user_email=logged_user_email,
     )
-    items = [
-        FriendItemOut(email=email, username=username, status=status.value)
-        for email, username, status in requests
-    ]
+    items = _friend_items_from_rows(requests)
     return MyFriendsResponse(total=len(items), items=items)
 
 async def get_outgoing_requests(
@@ -86,10 +99,7 @@ async def get_outgoing_requests(
         db,
         user_email=logged_user_email,
     )
-    items = [
-        FriendItemOut(email=email, username=username, status=status.value)
-        for email, username, status in requests
-    ]
+    items = _friend_items_from_rows(requests)
     return MyFriendsResponse(total=len(items), items=items)
 
 async def accept_friendship_request(
@@ -167,15 +177,7 @@ async def get_my_friends(
         db,
         user_email=logged_user_email,
     )
-    items = [
-        FriendItemOut(
-            email=email, 
-            username=username, 
-            status=status, 
-            share_schedule=share_schedule
-        )
-        for email, username, status, share_schedule in friends
-    ]
+    items = _friend_items_from_rows(friends)
     return MyFriendsResponse(total=len(items), items=items)
 
 async def get_incoming_requests(
