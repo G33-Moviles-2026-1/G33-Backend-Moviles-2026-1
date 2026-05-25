@@ -115,8 +115,17 @@ class UserStatusUpdate(BaseModel):
         return normalize_status(value)
 
 
-class UserAuthenticate(UserBase):
+class UserAuthenticate(BaseModel):
+    identifier: str | None = None  # email or username
+    email: str | None = None       # legacy field, same as identifier
     password: str
+
+    @property
+    def resolved_identifier(self) -> str:
+        value = self.identifier or self.email
+        if not value:
+            raise ValueError("identifier or email is required")
+        return value.strip().lower()
 
 class UserShareScheduleUpdate(BaseModel):
     share_schedule: bool

@@ -87,11 +87,14 @@ async def _get_current_user(request: Request, db: Session) -> models.User:
 
 @router.post("/login/")
 async def login(user: user_schema.UserAuthenticate, request: Request, db: Session = Depends(session.get_db)):
-    stmt = select(models.User).where(models.User.email == user.email)
+    identifier = user.resolved_identifier
+    stmt = select(models.User).where(
+        (models.User.email == identifier) | (func.lower(models.User.username) == identifier)
+    )
     result = await db.execute(stmt)
     db_user = result.scalars().first()
     if db_user is None or not utils.compare_hash(user.password, db_user.password_hash):
-        raise HTTPException(status_code=403, detail="Email or Password is Incorrect")
+        raise HTTPException(status_code=403, detail="Credentials are incorrect")
     request.session["user_name"] = db_user.email
     return {"message": "Success"}
 
