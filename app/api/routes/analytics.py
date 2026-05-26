@@ -19,6 +19,7 @@ from app.schemas.analytics import (
     ScheduleImportStepOut,
     AnalyticsEventOutRead,
     FavoriteSubmittedAnalyticsOut,
+    FriendCountDistributionSourceResponse,
     FriendshipNetworkDensityOut,
     FriendshipNetworkDensitySnapshotsResponse,
     ScreenTimeResponse,
@@ -35,6 +36,7 @@ from app.services.analytics_service import (
     compute_friendship_network_density,
     record_friendship_network_density_snapshot,
     get_friendship_network_density_snapshots,
+    get_friend_count_distribution_source,
 )
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
@@ -215,6 +217,24 @@ async def friendship_network_density_snapshots(
         start_date=start_date,
         end_date=end_date,
     )
+
+@router.get(
+    "/friend-count-distribution-source",
+    response_model=FriendCountDistributionSourceResponse,
+    summary="Source dataset for friend-count distribution per user",
+    description=(
+        "Returns the source tables needed by Power BI to answer: "
+        "'Given a range of dates, what is the distribution of number of friends per user?' "
+        "The response includes all users, including users with zero friends, and directed "
+        "relationship edges for accepted friendships. Power BI should filter edges locally "
+        "by accepted_date, count distinct friend_email per user_email, then group users by "
+        "that friend count."
+    ),
+)
+async def friend_count_distribution_source(
+    db: AsyncSession = Depends(get_db),
+) -> FriendCountDistributionSourceResponse:
+    return await get_friend_count_distribution_source(db)
 
 
 @router.post(

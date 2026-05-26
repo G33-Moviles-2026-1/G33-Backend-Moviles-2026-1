@@ -191,19 +191,41 @@ class Favorite(Base):
 
 class Friendship(Base):
     __tablename__ = "friendships"
-    correo_amigo_1: Mapped[str] = mapped_column(ForeignKey("users.email", onupdate="CASCADE"), primary_key=True)
-    correo_amigo_2: Mapped[str] = mapped_column(ForeignKey("users.email", onupdate="CASCADE"), primary_key=True)
-    estado: Mapped[FriendshipStatus] = mapped_column(
+
+    correo_amigo_1: Mapped[str] = mapped_column(
+        ForeignKey("users.email", onupdate="CASCADE"),
+        primary_key=True,
+    )
+    correo_amigo_2: Mapped[str] = mapped_column(
+        ForeignKey("users.email", onupdate="CASCADE"),
+        primary_key=True,
+    )
+    estado: Mapped[int] = mapped_column(
         Integer,
         nullable=False,
-        default=FriendshipStatus.pending,
+        default=FriendshipStatus.pending.value,
         server_default="0",
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    accepted_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=True,
     )
 
     __table_args__ = (
-        CheckConstraint("correo_amigo_1 <> correo_amigo_2", name="ck_friendship_distinct_emails"),
+        CheckConstraint(
+            "correo_amigo_1 <> correo_amigo_2",
+            name="ck_friendship_distinct_emails",
+        ),
         Index("ix_friendship_amigo1_estado", "correo_amigo_1", "estado"),
         Index("ix_friendship_amigo2_estado", "correo_amigo_2", "estado"),
+        Index("ix_friendships_estado_accepted_at", "estado", "accepted_at"),
+        Index("ix_friendships_accepted_at", "accepted_at"),
+        Index("ix_friendships_created_at", "created_at"),
     )
 
 # ---------- Reports ----------

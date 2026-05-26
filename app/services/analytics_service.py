@@ -20,6 +20,9 @@ from app.schemas.analytics import (
     AnalyticsEventIn,
     AnalyticsEventOut,
     FavoriteSubmittedAnalyticsOut,
+    FriendCountDistributionSourceResponse,
+    FriendCountDistributionUserOut,
+    FriendshipUserEdgeOut,
     FriendshipNetworkDensityOut,
     FriendshipNetworkDensitySnapshotOut,
     FriendshipNetworkDensitySnapshotsResponse,
@@ -530,6 +533,96 @@ async def get_schedule_import_funnel(
         highest_dropoff_method=highest_dropoff.method if highest_dropoff and _worst_dropoff(
             highest_dropoff) > 0 else None,
         methods=method_funnels,
+    )
+
+async def get_friend_count_distribution_source(
+    db: AsyncSession,
+) -> FriendCountDistributionSourceResponse:
+    """
+    Dataset for the business question:
+    'Given a range of dates, what is the distribution of number of friends per user?'
+
+    This endpoint intentionally returns granular source tables for Power BI:
+    - users: all registered users, including users with zero friends.
+    - relationship_user_edges: one accepted friendship becomes two directed edges.
+
+    Power BI should filter relationship_user_edges by accepted_date, count distinct
+    friend_email per user_email, then group users by that friend count.
+    """
+
+    users_result = await db.execute(
+        select(
+            models.User.email,
+            models.User.username,
+        ).order_by(
+            func.lower(models.User.username).asc(),
+            models.User.email.asc(),
+        )
+    )
+
+    users = [
+        FriendCountDistributionUserOut(
+            user_email=row.email,
+            username=row.username or row.email.split("@", 1)[0],
+        )
+        for row in users_result.all()
+    ]
+
+    accepted_at_expr = func.coalesce(
+        models.Friendship.accepted_at,
+        models.Friendship.created_at,
+    ).label("accepted_at")
+
+    friendships_result = await db.execute(
+        select(
+            models.Friendship.correo_amigo_1,
+            models.Friendship.correo_amigo_2,
+            accepted_at_expr,
+        )
+        .where(models.Friendship.estado == models.FriendshipStatus.accepted.value)
+        .order_by(
+            accepted_at_expr.asc(),
+            models.Friendship.correo_amigo_1.asc(),
+            models.Friendship.correo_amigo_2.asc(),
+        )
+    )
+
+    relationship_user_edges: list[FriendshipUserEdgeOut] = []
+
+    for row in friendships_result.all():
+        email_1 = row.correo_amigo_1
+        email_2 = row.correo_amigo_2
+        accepted_at = row.accepted_at
+
+        if accepted_at is None:
+            continue
+
+        friendship_user_pair_key = "|".join(sorted([email_1, email_2]))
+        accepted_date = accepted_at.date()
+
+        relationship_user_edges.append(
+            FriendshipUserEdgeOut(
+                accepted_at=accepted_at,
+                accepted_date=accepted_date,
+                friendship_user_pair_key=friendship_user_pair_key,
+                user_email=email_1,
+                friend_email=email_2,
+            )
+        )
+
+        relationship_user_edges.append(
+            FriendshipUserEdgeOut(
+                accepted_at=accepted_at,
+                accepted_date=accepted_date,
+                friendship_user_pair_key=friendship_user_pair_key,
+                user_email=email_2,
+                friend_email=email_1,
+            )
+        )
+
+    return FriendCountDistributionSourceResponse(
+        users=users,
+        relationship_user_edges=relationship_user_edges,
     )
 
 async def get_booking_room_specs_analytics(
