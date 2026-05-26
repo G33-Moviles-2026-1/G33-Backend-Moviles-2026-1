@@ -21,6 +21,11 @@ from app.schemas.friendships import (
     FriendshipOut,
     MyFriendsResponse,
 )
+from app.db.repositories.notifications_repo import delete_friend_request_notification
+from app.services.notifications_service import (
+    notify_friend_request_accepted,
+    notify_friend_request_received,
+)
 
 def _status_value(value) -> str:
     if hasattr(value, "value"):
@@ -76,6 +81,16 @@ async def create_friendship_request(
         correo_amigo_1=requester_email,
         correo_amigo_2=friend_email,
     )
+
+    try:
+        await notify_friend_request_received(
+            db,
+            requester_email=requester_email,
+            recipient_email=friend_email,
+        )
+    except Exception:
+        pass
+
     return FriendshipOut.model_validate(friendship)
 
 async def get_incoming_requests(
@@ -133,6 +148,21 @@ async def accept_friendship_request(
         db,
         friendship=friendship,
     )
+
+    try:
+        await delete_friend_request_notification(
+            db,
+            recipient_email=logged_user_email,
+            requester_email=requester_email,
+        )
+        await notify_friend_request_accepted(
+            db,
+            acceptor_email=logged_user_email,
+            requester_email=requester_email,
+        )
+    except Exception:
+        pass
+
     return FriendshipOut.model_validate(accepted)
 
 
@@ -167,6 +197,21 @@ async def delete_friendship(
         email_1=logged_user_email,
         email_2=resolved_friend_email,
     )
+
+    try:
+        # Clean up pending request notification in either direction
+        await delete_friend_request_notification(
+            db,
+            recipient_email=logged_user_email,
+            requester_email=resolved_friend_email,
+        )
+        await delete_friend_request_notification(
+            db,
+            recipient_email=resolved_friend_email,
+            requester_email=logged_user_email,
+        )
+    except Exception:
+        pass
 
 async def get_my_friends(
     db: AsyncSession,

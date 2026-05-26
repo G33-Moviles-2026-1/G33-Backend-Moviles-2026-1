@@ -5,6 +5,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
 from app.db.repositories.notifications_repo import (
+    delete_notification,
+    delete_read_notifications,
     list_notifications_for_user,
     mark_all_notifications_read,
     mark_notification_read,
@@ -65,3 +67,31 @@ async def mark_one_read(
             detail="Notification not found",
         )
     return {"message": "Marked as read"}
+
+
+@router.delete("/read", status_code=status.HTTP_200_OK)
+async def delete_all_read(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    user_email = _require_active_user_email(request)
+    deleted = await delete_read_notifications(db, user_email=user_email)
+    return {"deleted": deleted}
+
+
+@router.delete("/{notification_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_one(
+    notification_id: UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    user_email = _require_active_user_email(request)
+    found = await delete_notification(
+        db, notification_id=notification_id, user_email=user_email
+    )
+    if not found:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Notification not found",
+        )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

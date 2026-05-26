@@ -76,6 +76,8 @@ class UserStatus(str, enum.Enum):
 
 class NotificationType(str, enum.Enum):
     friend_booking = "friend_booking"
+    friend_request_received = "friend_request_received"
+    friend_request_accepted = "friend_request_accepted"
 
 # ---------- Core Tables ----------
 

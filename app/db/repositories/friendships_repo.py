@@ -198,6 +198,32 @@ async def list_accepted_friends_for_user(
     return list(result.all())
 
 
+async def get_user_status(
+    db: AsyncSession,
+    *,
+    user_email: str,
+) -> UserStatus | None:
+    result = await db.execute(
+        select(User.status).where(User.email == user_email).limit(1)
+    )
+    return result.scalar_one_or_none()
+
+
+async def get_user_info(
+    db: AsyncSession,
+    *,
+    user_email: str,
+) -> tuple[UserStatus, str] | None:
+    """Returns (status, username) or None if user not found."""
+    result = await db.execute(
+        select(User.status, User.username).where(User.email == user_email).limit(1)
+    )
+    row = result.one_or_none()
+    if row is None:
+        return None
+    return row.status, row.username
+
+
 async def get_accepted_friends_emails_not_incognito(
     db: AsyncSession,
     *,
