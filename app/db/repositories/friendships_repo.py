@@ -59,7 +59,37 @@ async def friendship_exists_any_direction(
     )
     return result.scalar_one_or_none() is not None
 
+async def get_friendship_between_users(
+    db: AsyncSession,
+    *,
+    email_1: str,
+    email_2: str,
+) -> Friendship | None:
+    result = await db.execute(
+        select(Friendship)
+        .where(
+            or_(
+                (Friendship.correo_amigo_1 == email_1)
+                & (Friendship.correo_amigo_2 == email_2),
+                (Friendship.correo_amigo_1 == email_2)
+                & (Friendship.correo_amigo_2 == email_1),
+            )
+        )
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
 
+async def get_username_by_email(
+    db: AsyncSession,
+    *,
+    email: str,
+) -> str | None:
+    result = await db.execute(
+        select(User.username)
+        .where(User.email == email)
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
 
 async def list_incoming_pending_requests(
     db: AsyncSession,

@@ -13,6 +13,8 @@ from app.db.repositories.friendships_repo import (
     resolve_user_identifier_to_email,
     update_friendship_to_accepted,
     user_exists,
+    get_friendship_between_users,
+    get_username_by_email,
 )
 from app.schemas.friendships import (
     AcceptFriendshipRequest,
@@ -50,6 +52,20 @@ def _friend_items_from_rows(rows) -> list[FriendItemOut]:
 
     return items
 
+def _friendship_status_int(value) -> int:
+    if hasattr(value, "value"):
+        return int(value.value)
+    return int(value)
+
+
+async def _friend_display_name(
+    db: AsyncSession,
+    *,
+    friend_email: str,
+) -> str:
+    username = await get_username_by_email(db, email=friend_email)
+    return username or friend_email.split("@", 1)[0]
+
 
 async def create_friendship_request(
     db: AsyncSession,
@@ -74,14 +90,47 @@ async def create_friendship_request(
             detail="you cannot add yourself as friend",
         )
 
-    if await friendship_exists_any_direction(
+    existing_friendship = await get_friendship_between_users(
         db,
         email_1=requester_email,
         email_2=friend_email,
-    ):
+    )
+
+    if existing_friendship is not None:
+        friend_name = await _friend_display_name(
+            db,
+            friend_email=friend_email,
+        )
+
+        existing_status = _friendship_status_int(existing_friendship.estado)
+
+        if existing_status == 1:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"You and {friend_name} are already friends.",
+            )
+
+        if existing_status == 0:
+            if existing_friendship.correo_amigo_1 == requester_email:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=(
+                        f"You already sent a friend request to {friend_name}. "
+                        "Wait for their response."
+                    ),
+                )
+
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"You already have a pending request from {friend_name}. "
+                    "Accept it or decline it."
+                ),
+            )
+
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="friendship already exists or pending",
+            detail=f"You already have a friendship relationship with {friend_name}.",
         )
 
     friendship = await insert_friendship(
