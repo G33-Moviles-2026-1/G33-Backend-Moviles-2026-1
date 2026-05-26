@@ -248,3 +248,20 @@ class BookingRoomSpecsAnalyticsResponse(BaseModel):
     total: int
     scoring_weights: BookingRoomRecommendationWeightsOut
     items: list[BookingRoomSpecAnalyticsOut]
+
+class FriendCountDistributionUserOut(BaseModel):
+    user_email: str
+    username: str
+
+
+class FriendshipUserEdgeOut(BaseModel):
+    accepted_at: datetime
+    accepted_date: date
+    friendship_user_pair_key: str
+    user_email: str
+    friend_email: str
+
+
+class FriendCountDistributionSourceResponse(BaseModel):
+    users: list[FriendCountDistributionUserOut]
+    relationship_user_edges: list[FriendshipUserEdgeOut]

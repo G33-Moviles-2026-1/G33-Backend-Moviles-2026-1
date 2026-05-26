@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from sqlalchemy import delete, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -57,7 +59,37 @@ async def friendship_exists_any_direction(
     )
     return result.scalar_one_or_none() is not None
 
+async def get_friendship_between_users(
+    db: AsyncSession,
+    *,
+    email_1: str,
+    email_2: str,
+) -> Friendship | None:
+    result = await db.execute(
+        select(Friendship)
+        .where(
+            or_(
+                (Friendship.correo_amigo_1 == email_1)
+                & (Friendship.correo_amigo_2 == email_2),
+                (Friendship.correo_amigo_1 == email_2)
+                & (Friendship.correo_amigo_2 == email_1),
+            )
+        )
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
 
+async def get_username_by_email(
+    db: AsyncSession,
+    *,
+    email: str,
+) -> str | None:
+    result = await db.execute(
+        select(User.username)
+        .where(User.email == email)
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
 
 async def list_incoming_pending_requests(
     db: AsyncSession,
@@ -69,7 +101,7 @@ async def list_incoming_pending_requests(
         .join(Friendship, User.email == Friendship.correo_amigo_1)
         .where(
             Friendship.correo_amigo_2 == user_email,
-            Friendship.estado == FriendshipStatus.pending,
+            Friendship.estado == FriendshipStatus.pending.value,
         )
         .order_by(User.username.asc())
     )
@@ -86,7 +118,7 @@ async def list_outgoing_pending_requests(
         .join(Friendship, User.email == Friendship.correo_amigo_2)
         .where(
             Friendship.correo_amigo_1 == user_email,
-            Friendship.estado == FriendshipStatus.pending,
+            Friendship.estado == FriendshipStatus.pending.value,
         )
         .order_by(User.username.asc())
     )
@@ -102,7 +134,7 @@ async def insert_friendship(
     friendship = Friendship(
         correo_amigo_1=correo_amigo_1,
         correo_amigo_2=correo_amigo_2,
-        estado=FriendshipStatus.pending,
+        estado=FriendshipStatus.pending.value,
     )
     db.add(friendship)
     await db.commit()
@@ -120,7 +152,7 @@ async def get_pending_friendship(
         select(Friendship).where(
             Friendship.correo_amigo_1 == correo_amigo_1,
             Friendship.correo_amigo_2 == correo_amigo_2,
-            Friendship.estado == FriendshipStatus.pending,
+            Friendship.estado == FriendshipStatus.pending.value,
         )
     )
     return result.scalar_one_or_none()
@@ -131,9 +163,12 @@ async def update_friendship_to_accepted(
     *,
     friendship: Friendship,
 ) -> Friendship:
-    friendship.estado = FriendshipStatus.accepted
+    friendship.estado = FriendshipStatus.accepted.value
+    friendship.accepted_at = datetime.now(timezone.utc)
+
     await db.commit()
     await db.refresh(friendship)
+
     return friendship
 
 
@@ -163,7 +198,7 @@ async def count_accepted_friendships(db: AsyncSession) -> int:
     result = await db.execute(
         select(func.count())
         .select_from(Friendship)
-        .where(Friendship.estado == FriendshipStatus.accepted)
+        .where(Friendship.estado == FriendshipStatus.accepted.value)
     )
     return int(result.scalar_one() or 0)
 
@@ -178,14 +213,14 @@ async def list_accepted_friends_for_user(
             Friendship.correo_amigo_2.label("friend_email")
         ).where(
             Friendship.correo_amigo_1 == user_email,
-            Friendship.estado == FriendshipStatus.accepted,
+            Friendship.estado == FriendshipStatus.accepted.value,
         )
         .union_all(
             select(
                 Friendship.correo_amigo_1.label("friend_email")
             ).where(
                 Friendship.correo_amigo_2 == user_email,
-                Friendship.estado == FriendshipStatus.accepted,
+                Friendship.estado == FriendshipStatus.accepted.value,
             )
         )
     ).subquery()
@@ -234,14 +269,14 @@ async def get_accepted_friends_emails_not_incognito(
             Friendship.correo_amigo_2.label("friend_email")
         ).where(
             Friendship.correo_amigo_1 == user_email,
-            Friendship.estado == FriendshipStatus.accepted,
+            Friendship.estado == FriendshipStatus.accepted.value,
         )
         .union_all(
             select(
                 Friendship.correo_amigo_1.label("friend_email")
             ).where(
                 Friendship.correo_amigo_2 == user_email,
-                Friendship.estado == FriendshipStatus.accepted,
+                Friendship.estado == FriendshipStatus.accepted.value,
             )
         )
     ).subquery()

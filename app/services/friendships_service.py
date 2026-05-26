@@ -13,6 +13,8 @@ from app.db.repositories.friendships_repo import (
     resolve_user_identifier_to_email,
     update_friendship_to_accepted,
     user_exists,
+    get_friendship_between_users,
+    get_username_by_email,
 )
 from app.schemas.friendships import (
     AcceptFriendshipRequest,
@@ -27,22 +29,48 @@ from app.services.notifications_service import (
     notify_friend_request_received,
 )
 
+
 def _status_value(value) -> str:
+    if value is None:
+        return "incognito"
+
     if hasattr(value, "value"):
         return value.value
+
     return str(value)
 
 
 def _friend_items_from_rows(rows) -> list[FriendItemOut]:
-    return [
-        FriendItemOut(
-            email=email,
-            username=username,
-            status=_status_value(user_status),
-            share_schedule=share_schedule,
+    items: list[FriendItemOut] = []
+
+    for email, username, user_status, share_schedule in rows:
+        safe_username = username or email.split("@", 1)[0]
+
+        items.append(
+            FriendItemOut(
+                email=email,
+                username=safe_username,
+                status=_status_value(user_status),
+                share_schedule=bool(share_schedule),
+            )
         )
-        for email, username, user_status, share_schedule in rows
-    ]
+
+    return items
+
+def _friendship_status_int(value) -> int:
+    if hasattr(value, "value"):
+        return int(value.value)
+    return int(value)
+
+
+async def _friend_display_name(
+    db: AsyncSession,
+    *,
+    friend_email: str,
+) -> str:
+    username = await get_username_by_email(db, email=friend_email)
+    return username or friend_email.split("@", 1)[0]
+
 
 async def create_friendship_request(
     db: AsyncSession,
@@ -54,6 +82,7 @@ async def create_friendship_request(
         db,
         identifier=payload.correo_amigo_2,
     )
+
     if not friend_email:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -66,14 +95,47 @@ async def create_friendship_request(
             detail="you cannot add yourself as friend",
         )
 
-    if await friendship_exists_any_direction(
+    existing_friendship = await get_friendship_between_users(
         db,
         email_1=requester_email,
         email_2=friend_email,
-    ):
+    )
+
+    if existing_friendship is not None:
+        friend_name = await _friend_display_name(
+            db,
+            friend_email=friend_email,
+        )
+
+        existing_status = _friendship_status_int(existing_friendship.estado)
+
+        if existing_status == 1:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"You and {friend_name} are already friends.",
+            )
+
+        if existing_status == 0:
+            if existing_friendship.correo_amigo_1 == requester_email:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=(
+                        f"You already sent a friend request to {friend_name}. "
+                        "Wait for their response."
+                    ),
+                )
+
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"You already have a pending request from {friend_name}. "
+                    "Accept it or decline it."
+                ),
+            )
+
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="friendship already exists or pending",
+            detail=f"You already have a friendship relationship with {friend_name}.",
         )
 
     friendship = await insert_friendship(
@@ -91,7 +153,9 @@ async def create_friendship_request(
     except Exception:
         pass
 
+
     return FriendshipOut.model_validate(friendship)
+
 
 async def get_incoming_requests(
     db: AsyncSession,
@@ -102,8 +166,10 @@ async def get_incoming_requests(
         db,
         user_email=logged_user_email,
     )
+
     items = _friend_items_from_rows(requests)
     return MyFriendsResponse(total=len(items), items=items)
+
 
 async def get_outgoing_requests(
     db: AsyncSession,
@@ -114,8 +180,10 @@ async def get_outgoing_requests(
         db,
         user_email=logged_user_email,
     )
+
     items = _friend_items_from_rows(requests)
     return MyFriendsResponse(total=len(items), items=items)
+
 
 async def accept_friendship_request(
     db: AsyncSession,
@@ -127,6 +195,7 @@ async def accept_friendship_request(
         db,
         identifier=payload.correo_amigo_1,
     )
+
     if not requester_email:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -138,6 +207,7 @@ async def accept_friendship_request(
         correo_amigo_1=requester_email,
         correo_amigo_2=logged_user_email,
     )
+
     if not friendship:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -163,6 +233,7 @@ async def accept_friendship_request(
     except Exception:
         pass
 
+
     return FriendshipOut.model_validate(accepted)
 
 
@@ -176,6 +247,7 @@ async def delete_friendship(
         db,
         identifier=friend_email,
     )
+
     if not resolved_friend_email:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -213,6 +285,7 @@ async def delete_friendship(
     except Exception:
         pass
 
+
 async def get_my_friends(
     db: AsyncSession,
     *,
@@ -222,27 +295,8 @@ async def get_my_friends(
         db,
         user_email=logged_user_email,
     )
-    items = _friend_items_from_rows(friends)
-    return MyFriendsResponse(total=len(items), items=items)
 
-async def get_incoming_requests(
-    db: AsyncSession,
-    *,
-    logged_user_email: str,
-) -> MyFriendsResponse:
-    requests = await list_incoming_pending_requests(
-        db,
-        user_email=logged_user_email,
-    )
-    items = [
-        FriendItemOut(
-            email=email, 
-            username=username, 
-            status=status, 
-            share_schedule=share_schedule
-        )
-        for email, username, status, share_schedule in requests
-    ]
+    items = _friend_items_from_rows(friends)
     return MyFriendsResponse(total=len(items), items=items)
 
 

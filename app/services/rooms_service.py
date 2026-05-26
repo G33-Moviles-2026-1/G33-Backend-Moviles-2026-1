@@ -238,6 +238,23 @@ async def get_room_date_availability(
         db, room_id=room_id, target_date=target_date, weekday=weekday,
     )
 
+    now = _current_bogota_datetime()
+
+    if target_date == now.date():
+        current_time = _truncate_to_minute(now.time())
+
+        available_slots = [
+            slot
+            for slot in available_slots
+            if _slot_has_not_ended(slot, current_time)
+        ]
+
+        blocked_slots = [
+            slot
+            for slot in blocked_slots
+            if _slot_has_not_ended(slot, current_time)
+        ]
+
     return RoomDateAvailabilityOut(
         **_map_room_base_to_dict(room, target_date, weekday),
         available_slots=[RoomDateAvailabilitySlotOut(start=s.start_time, end=s.end_time, is_available=True) for s in available_slots],
@@ -269,6 +286,13 @@ def _normalize_prefixes(payload: RoomSearchRequest) -> list[str]:
 
 def _current_bogota_datetime() -> datetime:
     return datetime.now(BOGOTA_TZ)
+
+def _truncate_to_minute(value: time) -> time:
+    return value.replace(second=0, microsecond=0)
+
+
+def _slot_has_not_ended(slot, current_time: time) -> bool:
+    return slot.end_time > current_time
 
 def _resolve_time_window(target_date: date, weekday: Weekday, since: time | None, until: time | None) -> tuple[time, time]:
     if since is None and until is None:
