@@ -24,7 +24,19 @@ from app.db.repositories.rooms_repo import (
     fetch_weekly_availability_for_rooms
 )
 
-from app.services.rooms_service import _compute_interest_score, list_user_room_preferences
+from app.services.rooms_service import (
+    AVAILABILITY_WEIGHT,
+    BUILDING_WEIGHT,
+    CAPACITY_WEIGHT,
+    FLOOR_WEIGHT,
+    UTILITY_WEIGHT,
+    _availability_similarity,
+    _capacity_similarity,
+    _compute_interest_score,
+    _infer_floor,
+    _utilities_similarity,
+    list_user_room_preferences,
+)
 _PYTHON_WEEKDAY_MAP: dict[int, str] = {
     0: "monday",
     1: "tuesday",
@@ -40,9 +52,96 @@ _DB_WEEKDAY: dict[str, Weekday] = {w.value: w for w in Weekday}
 
 # --- Auto Search ML Constants ---
 EPSILON = 0.20           
-WEIGHT_RL_SCORE = 0.40   
-WEIGHT_BASE_PREF = 0.60  
+WEIGHT_RL_SCORE = 0.30   
+WEIGHT_BASE_PREF = 0.70  
 MAX_ROOMS_PER_BUILDING_SAMPLE = 5
+
+
+def _recommendation_reason(
+    item: dict,
+    preferences: list,
+    *,
+    weekday: Weekday,
+    rl_learning_score: float,
+) -> str:
+    weighted_components = {
+        "booking_building": 0.0,
+        "booking_floor": 0.0,
+        "booking_capacity": 0.0,
+        "booking_utilities": 0.0,
+        "booking_availability": 0.0,
+    }
+    total_weight = 0
+    candidate_floor = _infer_floor(item["room_id"])
+
+    for pref in preferences:
+        booking_weight = pref.booking_count
+        total_weight += booking_weight
+        booked_floor = _infer_floor(pref.room_id)
+
+        same_building = item["building_code"] == pref.building_code
+        same_floor = (
+            candidate_floor is not None
+            and booked_floor is not None
+            and candidate_floor == booked_floor
+        )
+
+        weighted_components["booking_building"] += (
+            BUILDING_WEIGHT * (1.0 if same_building else 0.0) * booking_weight
+        )
+        weighted_components["booking_floor"] += (
+            FLOOR_WEIGHT * (1.0 if same_floor else 0.0) * booking_weight
+        )
+        weighted_components["booking_capacity"] += (
+            CAPACITY_WEIGHT
+            * _capacity_similarity(item["capacity"], pref.capacity)
+            * booking_weight
+        )
+        weighted_components["booking_utilities"] += (
+            UTILITY_WEIGHT
+            * _utilities_similarity(item["utilities"], pref.utilities)
+            * booking_weight
+        )
+        weighted_components["booking_availability"] += (
+            AVAILABILITY_WEIGHT
+            * _availability_similarity(
+                item["matching_windows"],
+                pref.availability_windows,
+                weekday,
+            )
+            * booking_weight
+        )
+
+    if total_weight > 0:
+        weighted_components = {
+            key: (value / total_weight) * WEIGHT_BASE_PREF
+            for key, value in weighted_components.items()
+        }
+
+    scores = {
+        **weighted_components,
+        "learned_interactions": max(0.0, rl_learning_score) * WEIGHT_RL_SCORE,
+        "reliability": max(0.0, float(item.get("reliability") or 0.0)) * 0.05,
+    }
+    reason_key, reason_score = max(scores.items(), key=lambda entry: entry[1])
+
+    if reason_score <= 0:
+        return "Available for your selected date and time."
+
+    if reason_key == "learned_interactions":
+        return "Recommended because it matches rooms you saved or booked before."
+    if reason_key in {
+        "booking_building",
+        "booking_floor",
+        "booking_capacity",
+        "booking_utilities",
+        "booking_availability",
+    }:
+        return "Recommended because it matches rooms from your booking history."
+    if reason_key == "reliability":
+        return "Recommended because it is a reliable available room."
+
+    return "Recommended for your selected date and time."
 
 
 async def get_auto_search_recommendations(
@@ -146,14 +245,16 @@ async def get_auto_search_recommendations(
         db, user_email=user_email, weekday=weekday_str, slot_start=search_since
     )
 
-    WEIGHT_BASE_PREF = 0.7
-    WEIGHT_RL_SCORE = 0.3
-    EPSILON = 0.2
-
     for item in candidates:
         base_interest_score = _compute_interest_score(item, user_preferences, weekday=db_weekday)
         rl_learning_score = rl_scores_map.get(item["room_id"], 0.0)
         item["final_ml_score"] = (base_interest_score * WEIGHT_BASE_PREF) + (rl_learning_score * WEIGHT_RL_SCORE)
+        item["recommendation_reason"] = _recommendation_reason(
+            item,
+            user_preferences,
+            weekday=db_weekday,
+            rl_learning_score=rl_learning_score,
+        )
 
     candidates.sort(key=lambda x: (-x["final_ml_score"], -x["reliability"], x["room_id"]))
 

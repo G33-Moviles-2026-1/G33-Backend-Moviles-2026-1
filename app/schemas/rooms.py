@@ -86,6 +86,7 @@ class RoomSearchItemOut(BaseModel):
     utilities: list[UtilityType] = Field(default_factory=list)
     distance_seconds: float | None = None
     matching_windows: list[TimeWindowOut] = Field(default_factory=list)
+    recommendation_reason: str | None = None
 
 
 class RoomSearchResponse(BaseModel):
